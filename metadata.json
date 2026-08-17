@@ -1,0 +1,6 @@
+{
+  "name": "Нотатки",
+  "description": "Мінімалістичний текстовий редактор та органайзер нотаток з багатим форматуванням",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
