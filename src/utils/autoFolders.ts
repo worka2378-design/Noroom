@@ -28,11 +28,15 @@ export function syncAutoFolders(
   updatedLinkFolderMap: Record<string, string>;
   hasChanges: boolean;
 } {
-  // Separate user manual folders from auto-managed folders
-  const manualFolders = existingFolders.filter((f) => !f.autoCreated);
+  const activeNoteIds = new Set(notes.map((n) => n.id));
+
+  // Separate user manual folders from auto-managed folders, filtering out any orphaned note-tied folders
+  const manualFolders = existingFolders.filter(
+    (f) => !f.autoCreated && (!f.sourceNoteId || activeNoteIds.has(f.sourceNoteId))
+  );
   const existingAutoFolderMap = new Map<string, Folder>();
   existingFolders
-    .filter((f) => f.autoCreated)
+    .filter((f) => f.autoCreated && (!f.sourceNoteId || activeNoteIds.has(f.sourceNoteId)))
     .forEach((f) => existingAutoFolderMap.set(f.id, f));
 
   const newAutoFolders: Folder[] = [];
@@ -40,6 +44,8 @@ export function syncAutoFolders(
 
   // Track all auto folder IDs created in this run
   const activeAutoFolderIds = new Set<string>();
+  const allCurrentLinks = notes.flatMap((note) => extractLinksFromNote(note));
+  const activeLinkIdSet = new Set(allCurrentLinks.map((l) => l.id));
 
   notes.forEach((note) => {
     const links = extractLinksFromNote(note);
@@ -117,8 +123,12 @@ export function syncAutoFolders(
     }
   });
 
-  // Clean up linkFolderMap for auto-folders that no longer exist
+  // Clean up linkFolderMap: remove links that no longer exist or belong to auto-folders that were removed
   Object.keys(newLinkFolderMap).forEach((linkId) => {
+    if (!activeLinkIdSet.has(linkId)) {
+      delete newLinkFolderMap[linkId];
+      return;
+    }
     const assignedFolderId = newLinkFolderMap[linkId];
     if (
       assignedFolderId.startsWith('auto-') &&

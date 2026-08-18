@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Search, X, FolderPlus, FileText, Link2, Plus } from 'lucide-react';
+import { Search, X, FolderPlus, FileText, Link2, Plus, Shield, ShieldCheck, Lock } from 'lucide-react';
 import { Note, Folder } from './types';
 import {
   loadSavedNotes,
@@ -19,7 +19,24 @@ import {
   safeGetItem,
   safeSetItem,
   getFolderAndSubfolderIds,
+  isVaultProtected,
+  getSavedVaultMeta,
+  saveVaultMeta,
+  getSavedEncryptedVaultData,
+  saveEncryptedVaultData,
+  clearPlainStorage,
+  resetEntireVault,
+  INITIAL_NOTES,
+  INITIAL_FOLDERS,
 } from './utils/storage';
+import {
+  VaultMeta,
+  VaultPayload,
+  createVaultMeta,
+  verifyVaultPassword,
+  encryptVaultPayload,
+  decryptVaultPayload,
+} from './utils/crypto';
 import {
   createGraphicLinkHtml,
   extractAllLinksFromNotes,
@@ -32,14 +49,22 @@ import { EditorPane, EditorPaneHandle } from './components/EditorPane';
 import { EditorToolbar } from './components/EditorToolbar';
 import { LinkModal } from './components/LinkModal';
 import { LogoIcon } from './components/LogoIcon';
+import { VaultLockScreen } from './components/VaultLockScreen';
+import { VaultSetupModal } from './components/VaultSetupModal';
 
 export default function App() {
-  const [notes, setNotes] = useState<Note[]>(() => loadSavedNotes());
-  const [folders, setFolders] = useState<Folder[]>(() => loadSavedFolders());
+  const [vaultMeta, setVaultMeta] = useState<VaultMeta | null>(() => getSavedVaultMeta());
+  const [isVaultLocked, setIsVaultLocked] = useState<boolean>(() => isVaultProtected());
+  const [masterPassword, setMasterPassword] = useState<string | null>(null);
+  const [isVaultSetupOpen, setIsVaultSetupOpen] = useState(false);
+
+  const [notes, setNotes] = useState<Note[]>(() => (isVaultProtected() ? [] : loadSavedNotes()));
+  const [folders, setFolders] = useState<Folder[]>(() => (isVaultProtected() ? [] : loadSavedFolders()));
   const [linkFolderMap, setLinkFolderMap] = useState<Record<string, string>>(() =>
-    loadSavedLinkFolderMap()
+    isVaultProtected() ? {} : loadSavedLinkFolderMap()
   );
   const [activeId, setActiveId] = useState<string | null>(() => {
+    if (isVaultProtected()) return null;
     const initial = loadSavedNotes();
     return initial.length > 0 ? initial[0].id : null;
   });
@@ -60,22 +85,252 @@ export default function App() {
   // Debounced storage save
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const persistNotes = useCallback((updatedNotes: Note[]) => {
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
+  // Unified save engine (Encrypted AES-GCM when vault is active, otherwise local storage)
+  const persistVaultData = useCallback(
+    (
+      currentNotes: Note[],
+      currentFolders: Folder[],
+      currentMap: Record<string, string>,
+      currentActiveId: string | null
+    ) => {
+      if (vaultMeta && masterPassword) {
+        const payload: VaultPayload = {
+          notes: currentNotes,
+          folders: currentFolders,
+          linkFolderMap: currentMap,
+          lastActiveNoteId: currentActiveId,
+          updatedAt: Date.now(),
+        };
+        encryptVaultPayload(payload, masterPassword)
+          .then((ciphertext) => {
+            saveEncryptedVaultData(ciphertext);
+          })
+          .catch((err) => {
+            console.error('Failed to encrypt vault:', err);
+          });
+      } else if (!vaultMeta) {
+        saveNotesToStorage(currentNotes);
+        saveFoldersToStorage(currentFolders);
+        saveLinkFolderMapToStorage(currentMap);
+      }
+    },
+    [vaultMeta, masterPassword]
+  );
+
+  const persistNotes = useCallback(
+    (updatedNotes: Note[]) => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      saveTimeoutRef.current = setTimeout(() => {
+        persistVaultData(updatedNotes, folders, linkFolderMap, activeId);
+      }, 200);
+    },
+    [activeId, folders, linkFolderMap, persistVaultData]
+  );
+
+  const persistFolders = useCallback(
+    (updatedFolders: Folder[]) => {
+      persistVaultData(notes, updatedFolders, linkFolderMap, activeId);
+    },
+    [activeId, linkFolderMap, notes, persistVaultData]
+  );
+
+  const persistLinkFolderMap = useCallback(
+    (updatedMap: Record<string, string>) => {
+      persistVaultData(notes, folders, updatedMap, activeId);
+    },
+    [activeId, folders, notes, persistVaultData]
+  );
+
+  // Lock Vault handler
+  const handleLockVault = useCallback(() => {
+    setMasterPassword(null);
+    setIsVaultLocked(true);
+    // Erase sensitive decrypted data from in-memory react state
+    setNotes([]);
+    setFolders([]);
+    setLinkFolderMap({});
+    setActiveId(null);
+  }, []);
+
+  // Unlock Vault handler
+  const handleUnlockVault = useCallback(async (password: string): Promise<boolean> => {
+    try {
+      const ciphertext = getSavedEncryptedVaultData();
+      if (!ciphertext) {
+        // Empty vault
+        setNotes(INITIAL_NOTES);
+        setFolders(INITIAL_FOLDERS);
+        setLinkFolderMap({});
+        setActiveId(INITIAL_NOTES[0].id);
+        setMasterPassword(password);
+        setIsVaultLocked(false);
+        return true;
+      }
+
+      const payload = await decryptVaultPayload(ciphertext, password);
+      setNotes(sortNotes(payload.notes || []));
+      setFolders(payload.folders || []);
+      setLinkFolderMap(payload.linkFolderMap || {});
+      setActiveId(payload.lastActiveNoteId || (payload.notes?.[0]?.id ?? null));
+      setMasterPassword(password);
+      setIsVaultLocked(false);
+      return true;
+    } catch (err) {
+      console.error('Failed to unlock vault:', err);
+      return false;
     }
-    saveTimeoutRef.current = setTimeout(() => {
-      saveNotesToStorage(updatedNotes);
-    }, 200);
   }, []);
 
-  const persistFolders = useCallback((updatedFolders: Folder[]) => {
-    saveFoldersToStorage(updatedFolders);
+  // Reset entire vault
+  const handleResetVault = useCallback(() => {
+    resetEntireVault();
+    setVaultMeta(null);
+    setMasterPassword(null);
+    setIsVaultLocked(false);
+    setNotes(INITIAL_NOTES);
+    setFolders(INITIAL_FOLDERS);
+    setLinkFolderMap({});
+    setActiveId(INITIAL_NOTES[0].id);
   }, []);
 
-  const persistLinkFolderMap = useCallback((updatedMap: Record<string, string>) => {
-    saveLinkFolderMapToStorage(updatedMap);
-  }, []);
+  // Setup Vault for first time
+  const handleSetupVault = useCallback(
+    async (password: string, autoLockMinutes: number): Promise<boolean> => {
+      try {
+        const meta = await createVaultMeta(password, autoLockMinutes);
+        const payload: VaultPayload = {
+          notes,
+          folders,
+          linkFolderMap,
+          lastActiveNoteId: activeId,
+          updatedAt: Date.now(),
+        };
+        const ciphertext = await encryptVaultPayload(payload, password);
+        saveVaultMeta(meta);
+        saveEncryptedVaultData(ciphertext);
+        clearPlainStorage(); // Purge unencrypted data from disk!
+
+        setVaultMeta(meta);
+        setMasterPassword(password);
+        setIsVaultLocked(false);
+        return true;
+      } catch (err) {
+        console.error('Setup vault error:', err);
+        return false;
+      }
+    },
+    [activeId, folders, linkFolderMap, notes]
+  );
+
+  // Change master password
+  const handleChangePassword = useCallback(
+    async (oldPassword: string, newPassword: string, autoLockMinutes: number): Promise<boolean> => {
+      if (!vaultMeta) return false;
+      const isValid = await verifyVaultPassword(oldPassword, vaultMeta);
+      if (!isValid) return false;
+
+      try {
+        const meta = await createVaultMeta(newPassword, autoLockMinutes);
+        const payload: VaultPayload = {
+          notes,
+          folders,
+          linkFolderMap,
+          lastActiveNoteId: activeId,
+          updatedAt: Date.now(),
+        };
+        const ciphertext = await encryptVaultPayload(payload, newPassword);
+        saveVaultMeta(meta);
+        saveEncryptedVaultData(ciphertext);
+
+        setVaultMeta(meta);
+        setMasterPassword(newPassword);
+        return true;
+      } catch (err) {
+        console.error('Change password error:', err);
+        return false;
+      }
+    },
+    [activeId, folders, linkFolderMap, notes, vaultMeta]
+  );
+
+  // Disable vault encryption (convert back to regular local storage)
+  const handleDisableVault = useCallback(
+    async (currentPassword: string): Promise<boolean> => {
+      if (!vaultMeta) return false;
+      const isValid = await verifyVaultPassword(currentPassword, vaultMeta);
+      if (!isValid) return false;
+
+      try {
+        saveNotesToStorage(notes);
+        saveFoldersToStorage(folders);
+        saveLinkFolderMapToStorage(linkFolderMap);
+        resetEntireVault();
+        // Re-save plain text
+        saveNotesToStorage(notes);
+        saveFoldersToStorage(folders);
+        saveLinkFolderMapToStorage(linkFolderMap);
+
+        setVaultMeta(null);
+        setMasterPassword(null);
+        setIsVaultLocked(false);
+        return true;
+      } catch (err) {
+        console.error('Disable vault error:', err);
+        return false;
+      }
+    },
+    [folders, linkFolderMap, notes, vaultMeta]
+  );
+
+  // Export encrypted backup
+  const handleExportBackup = useCallback(() => {
+    if (!vaultMeta) return;
+    const ciphertext = getSavedEncryptedVaultData();
+    const backupObj = {
+      app: 'MinimalNotesEncryptedVault',
+      version: 1,
+      meta: vaultMeta,
+      data: ciphertext,
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `notes-vault-backup-${new Date().toISOString().slice(0, 10)}.vault`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [vaultMeta]);
+
+  // Auto-lock timer on user inactivity
+  useEffect(() => {
+    if (isVaultLocked || !vaultMeta || !vaultMeta.autoLockMinutes || vaultMeta.autoLockMinutes <= 0 || !masterPassword) {
+      return;
+    }
+
+    const timeoutMs = vaultMeta.autoLockMinutes * 60 * 1000;
+    let timer: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        handleLockVault();
+      }, timeoutMs);
+    };
+
+    resetTimer();
+
+    const events = ['mousedown', 'mousemove', 'keydown', 'touchstart', 'scroll'];
+    const handleActivity = () => resetTimer();
+
+    events.forEach((ev) => window.addEventListener(ev, handleActivity, { passive: true }));
+    return () => {
+      clearTimeout(timer);
+      events.forEach((ev) => window.removeEventListener(ev, handleActivity));
+    };
+  }, [isVaultLocked, vaultMeta, masterPassword, handleLockVault]);
 
   // Compute all extracted links across all notes
   const extractedLinks = useMemo(() => {
@@ -100,6 +355,7 @@ export default function App() {
 
   // Auto-sync folders and sub-folders based on links and headings in notes
   useEffect(() => {
+    if (isVaultLocked) return;
     const result = syncAutoFolders(notes, folders, linkFolderMap);
     if (result.hasChanges) {
       setFolders(result.updatedFolders);
@@ -107,7 +363,7 @@ export default function App() {
       persistFolders(result.updatedFolders);
       persistLinkFolderMap(result.updatedLinkFolderMap);
     }
-  }, [notes, folders, linkFolderMap, persistFolders, persistLinkFolderMap]);
+  }, [notes, folders, linkFolderMap, persistFolders, persistLinkFolderMap, isVaultLocked]);
 
   // Folder Operations
   const handleAddFolder = useCallback(
@@ -127,7 +383,6 @@ export default function App() {
       };
 
       setFolders((prev) => {
-        // Expand parent if it was collapsed
         const next = prev.map((f) =>
           f.id === parentId ? { ...f, collapsed: false, interacted: true } : f
         );
@@ -437,6 +692,52 @@ export default function App() {
       e.stopPropagation();
       if (!window.confirm('Видалити цю нотатку?')) return;
 
+      // 1. Identify all folders created for or associated with this note
+      const noteFolderIdsToDelete = new Set<string>();
+      folders.forEach((f) => {
+        if (
+          f.sourceNoteId === id ||
+          f.id === `auto-f-${id}` ||
+          f.id.startsWith(`auto-sf-${id}-`) ||
+          f.id.startsWith(`auto-f-${id}`)
+        ) {
+          noteFolderIdsToDelete.add(f.id);
+        }
+      });
+
+      // Also get all recursive sub-folders of these folders
+      const allFolderIdsToDelete = new Set<string>();
+      noteFolderIdsToDelete.forEach((fId) => {
+        const subIds = getFolderAndSubfolderIds(fId, folders);
+        subIds.forEach((sId) => allFolderIdsToDelete.add(sId));
+      });
+
+      // 2. Remove associated folders and persist
+      if (allFolderIdsToDelete.size > 0) {
+        setFolders((prevFolders) => {
+          const nextFolders = prevFolders.filter((f) => !allFolderIdsToDelete.has(f.id));
+          persistFolders(nextFolders);
+          return nextFolders;
+        });
+      }
+
+      // 3. Clean up linkFolderMap for links belonging to this note or pointing to deleted folders
+      setLinkFolderMap((prevMap) => {
+        const nextMap = { ...prevMap };
+        let mapChanged = false;
+        Object.keys(nextMap).forEach((linkKey) => {
+          if (linkKey.startsWith(`${id}-`) || allFolderIdsToDelete.has(nextMap[linkKey])) {
+            delete nextMap[linkKey];
+            mapChanged = true;
+          }
+        });
+        if (mapChanged) {
+          persistLinkFolderMap(nextMap);
+        }
+        return nextMap;
+      });
+
+      // 4. Filter notes and update active note
       setNotes((prev) => {
         const filtered = prev.filter((n) => n.id !== id);
         persistNotes(filtered);
@@ -446,7 +747,7 @@ export default function App() {
         return filtered;
       });
     },
-    [activeId, persistNotes]
+    [activeId, folders, persistFolders, persistLinkFolderMap, persistNotes]
   );
 
   // Global Keyboard Shortcuts
@@ -462,6 +763,13 @@ export default function App() {
         e.preventDefault();
         toggleSidebar();
       }
+      // Ctrl+L or Cmd+L for quick vault lock
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'д' || e.key === 'L')) {
+        e.preventDefault();
+        if (vaultMeta && !isVaultLocked) {
+          handleLockVault();
+        }
+      }
       // Esc to clear search if focused
       if (e.key === 'Escape' && document.activeElement?.id === 'sidebar-search-input') {
         setSearchTerm('');
@@ -470,7 +778,18 @@ export default function App() {
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [handleCreateNote]);
+  }, [handleCreateNote, handleLockVault, isVaultLocked, vaultMeta]);
+
+  // If vault is locked, render full-screen lock screen
+  if (isVaultLocked && vaultMeta) {
+    return (
+      <VaultLockScreen
+        meta={vaultMeta}
+        onUnlock={handleUnlockVault}
+        onResetVault={handleResetVault}
+      />
+    );
+  }
 
   const activeNote = notes.find((n) => n.id === activeId) || null;
 
@@ -479,7 +798,7 @@ export default function App() {
       {/* ================= ONE UNIFIED SEAMLESS TOP HEADER (Frosted Glass Full Width) ================= */}
       <header
         id="app-top-header"
-        className="fixed top-0 left-0 right-0 z-30 h-13 min-h-[50px] bg-white/40 backdrop-blur-md border-b border-neutral-200/40 flex items-center px-3 sm:px-4 select-none"
+        className="fixed top-0 left-0 right-0 z-30 h-13 min-h-[50px] bg-white/40 backdrop-blur-md border-b border-neutral-200/40 flex items-center px-3 sm:px-4 select-none justify-between"
       >
         {/* Left Side: Sidebar Controls (aligned seamlessly with sidebar width) */}
         <div
@@ -510,7 +829,7 @@ export default function App() {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder="Пошук"
-                  className="w-full pl-8 pr-7 py-1.5 text-xs bg-white/50 hover:bg-white/70 focus:bg-white/90 border border-neutral-200/50 focus:border-neutral-300 rounded-lg outline-none transition-colors placeholder:text-neutral-400 backdrop-blur-xs"
+                  className="w-full pl-8 pr-7 py-1.5 text-xs bg-neutral-50 hover:bg-neutral-100/60 focus:bg-white border border-neutral-200 focus:border-neutral-900 rounded-full outline-none transition-colors text-neutral-900 placeholder:text-neutral-400"
                 />
                 {searchTerm && (
                   <button
@@ -597,6 +916,43 @@ export default function App() {
             />
           </div>
         </div>
+
+        {/* Far Right: Vault / Security Controls */}
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0 pl-1">
+          <div className="w-px h-4 bg-neutral-200/80 mx-0.5 sm:mx-1 shrink-0 select-none" />
+          {vaultMeta ? (
+            <>
+              <button
+                type="button"
+                onClick={handleLockVault}
+                title="Заблокувати сейф (Ctrl+L)"
+                aria-label="Заблокувати сейф"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/70 transition-colors shrink-0 cursor-pointer"
+              >
+                <Lock className="w-4 h-4" strokeWidth={1.75} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsVaultSetupOpen(true)}
+                title="Параметри захисту"
+                aria-label="Параметри захисту"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-neutral-900 bg-neutral-200/70 hover:bg-neutral-200 transition-colors shrink-0 cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4" strokeWidth={1.75} />
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsVaultSetupOpen(true)}
+              title="Захистити нотатки паролем"
+              aria-label="Захистити нотатки паролем"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/70 transition-colors shrink-0 cursor-pointer"
+            >
+              <Shield className="w-4 h-4" strokeWidth={1.75} />
+            </button>
+          )}
+        </div>
       </header>
 
       {/* Main Body (Seamless Continuous Panels) */}
@@ -657,6 +1013,18 @@ export default function App() {
           document.execCommand('insertHTML', false, richLinkHtml);
           handleUpdateActiveNote({});
         }}
+      />
+
+      {/* Vault Setup & Security Modal */}
+      <VaultSetupModal
+        isOpen={isVaultSetupOpen}
+        onClose={() => setIsVaultSetupOpen(false)}
+        isConfigured={!!vaultMeta}
+        currentMeta={vaultMeta}
+        onSetupVault={handleSetupVault}
+        onChangePassword={handleChangePassword}
+        onDisableVault={handleDisableVault}
+        onExportBackup={handleExportBackup}
       />
     </div>
   );

@@ -1,9 +1,12 @@
 import { Note, Folder } from '../types';
+import { VaultMeta } from './crypto';
 
 export const STORAGE_KEY = 'minimal-notes-v2';
 export const SIDEBAR_STATE_KEY = 'minimal-notes-sidebar';
 export const FOLDERS_STORAGE_KEY = 'minimal-notes-folders-v1';
 export const LINK_FOLDERS_STORAGE_KEY = 'minimal-notes-link-folders-v1';
+export const VAULT_META_KEY = 'minimal-notes-vault-meta-v1';
+export const VAULT_DATA_KEY = 'minimal-notes-vault-data-v1';
 
 export function uid(): string {
   return 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -252,4 +255,44 @@ export function getFolderAndSubfolderIds(rootFolderId: string, allFolders: Folde
   }
   return result;
 }
+
+export function isVaultProtected(): boolean {
+  return !!safeGetItem(VAULT_META_KEY);
+}
+
+export function getSavedVaultMeta(): VaultMeta | null {
+  try {
+    const raw = safeGetItem(VAULT_META_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as VaultMeta;
+  } catch (e) {
+    console.error('[Storage] Error loading vault meta:', e);
+    return null;
+  }
+}
+
+export function saveVaultMeta(meta: VaultMeta): void {
+  safeSetItem(VAULT_META_KEY, JSON.stringify(meta));
+}
+
+export function getSavedEncryptedVaultData(): string | null {
+  return safeGetItem(VAULT_DATA_KEY);
+}
+
+export function saveEncryptedVaultData(ciphertext: string): void {
+  safeSetItem(VAULT_DATA_KEY, ciphertext);
+}
+
+export function clearPlainStorage(): void {
+  safeRemoveItem(STORAGE_KEY);
+  safeRemoveItem(FOLDERS_STORAGE_KEY);
+  safeRemoveItem(LINK_FOLDERS_STORAGE_KEY);
+}
+
+export function resetEntireVault(): void {
+  safeRemoveItem(VAULT_META_KEY);
+  safeRemoveItem(VAULT_DATA_KEY);
+  clearPlainStorage();
+}
+
 

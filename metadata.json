@@ -1,6 +1,6 @@
 {
   "name": "Нотатки",
-  "description": "Мінімалістичний текстовий редактор та органайзер нотаток з багатим форматуванням",
+  "description": "Мінімалістичний текстовий редактор та органайзер нотаток з наскрізним шифруванням AES-256-GCM та захищеним сейфом",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

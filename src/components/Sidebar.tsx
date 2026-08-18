@@ -633,7 +633,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
                   if (e.key === 'Escape') setEditingFolderId(null);
                 }}
                 onClick={(e) => e.stopPropagation()}
-                className="w-full text-xs font-medium text-neutral-900 bg-white border border-neutral-300 rounded px-1.5 py-0.5 outline-none"
+                className="w-full text-xs font-medium text-neutral-900 bg-white border border-neutral-300 focus:border-neutral-900 rounded-full px-2.5 py-0.5 outline-none transition-colors"
               />
             ) : (
               <div className="flex items-center gap-1.5 truncate">
