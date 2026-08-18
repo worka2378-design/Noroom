@@ -1,13 +1,28 @@
-import React, { useRef, useEffect } from 'react';
-import { FileText, Plus, Sparkles } from 'lucide-react';
+import React, { useRef, useEffect, useState, useMemo, useImperativeHandle, forwardRef } from 'react';
+import { FileText, Plus } from 'lucide-react';
 import { Note, TextFormatCommand, BlockFormatCommand } from '../types';
-import { EditorToolbar } from './EditorToolbar';
 import { TableEditorManager } from './TableEditorManager';
+import { AnchorVerticalRail } from './AnchorNavigator';
 import { formatNoteDate, countWords, countCharacters } from '../utils/storage';
 import { createGraphicLinkHtml, autoConvertUrlsToRichLinks } from '../utils/links';
-import { autoPartitionNoteWithAnchors } from '../utils/sections';
+import { autoPartitionNoteWithAnchors, cleanLegacyAnchorDividers, extractNoteSections } from '../utils/sections';
 
-interface EditorPaneProps {
+export interface EditorPaneHandle {
+  execCommand: (command: TextFormatCommand, value?: string) => void;
+  formatBlock: (tag: BlockFormatCommand) => void;
+  applyFontFamily: (fontFamily: string) => void;
+  applyFontSize: (fontSize: string) => void;
+  clearFormatting: () => void;
+  insertImageFile: (file: File) => void;
+  insertAnchor: () => void;
+  autoPartitionAnchors: () => void;
+  insertTable: (rows?: number, cols?: number) => void;
+  exportNote: (format: 'markdown' | 'html' | 'txt') => void;
+  changeTextColor: (color: string) => void;
+  changeHighlightColor: (color: string) => void;
+}
+
+export interface EditorPaneProps {
   note: Note | null;
   targetAnchorId?: string | null;
   onUpdateNote: (updates: Partial<Note>) => void;
@@ -20,7 +35,7 @@ interface EditorPaneProps {
   isSidebarCollapsed?: boolean;
 }
 
-export const EditorPane: React.FC<EditorPaneProps> = ({
+export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
   note,
   targetAnchorId,
   onUpdateNote,
@@ -31,9 +46,167 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
   highlightColor,
   onChangeHighlightColor,
   isSidebarCollapsed = false,
-}) => {
+}, ref) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+
+  // Active section tracker for vertical rail dots
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+
+  // Extracted sections for active note
+  const sections = useMemo(() => {
+    if (!note) return [];
+    return extractNoteSections(note.content, note.title);
+  }, [note?.content, note?.title]);
+
+  const scrollToSection = (sectionId: string, index?: number) => {
+    const frame = document.getElementById('editor-document-frame') as HTMLElement | null;
+    const editor = contentRef.current;
+
+    if (sectionId === 'section-root' || sectionId === 'note-top' || index === 0) {
+      if (frame) {
+        frame.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        titleInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      setActiveSectionId('section-root');
+      return;
+    }
+
+    if (!editor || !frame) return;
+
+    let targetEl: HTMLElement | null = null;
+
+    // 1. By ID selector
+    try {
+      targetEl = editor.querySelector(`#${CSS.escape(sectionId)}`) as HTMLElement | null;
+    } catch {
+      targetEl = null;
+    }
+
+    // 2. By data-anchor-id attribute
+    if (!targetEl) {
+      try {
+        targetEl = editor.querySelector(`[data-anchor-id="${CSS.escape(sectionId)}"]`) as HTMLElement | null;
+      } catch {
+        targetEl = null;
+      }
+    }
+
+    // 3. By matching section title text
+    const sectionObj = sections.find((s) => s.id === sectionId) || (index !== undefined ? sections[index] : null);
+    const targetTitle = sectionObj?.title?.trim().toLowerCase();
+
+    if (!targetEl && targetTitle) {
+      const candidates = Array.from(
+        editor.querySelectorAll('h1, h2, h3, h4, h5, h6, [data-anchor-title], p, div, li, blockquote')
+      ) as HTMLElement[];
+
+      for (const el of candidates) {
+        const titleAttr = (el.getAttribute('data-anchor-title') || '').trim().toLowerCase();
+        const text = (el.textContent || '').trim().toLowerCase();
+        if (
+          titleAttr === targetTitle ||
+          text === targetTitle ||
+          (text.length < 150 && (text.startsWith(targetTitle) || targetTitle.startsWith(text)))
+        ) {
+          targetEl = el;
+          break;
+        }
+      }
+    }
+
+    // 4. By sequential index among headings / anchored blocks
+    if (!targetEl && index !== undefined && index > 0) {
+      const headingsAndAnchors = Array.from(
+        editor.querySelectorAll('h1, h2, h3, h4, [data-anchor-id], [id^="anchor-"]')
+      ) as HTMLElement[];
+      if (headingsAndAnchors[index - 1]) {
+        targetEl = headingsAndAnchors[index - 1];
+      } else {
+        const blocks = (Array.from(editor.children) as HTMLElement[]).filter((c) => (c.textContent || '').trim().length > 0);
+        if (blocks[index]) {
+          targetEl = blocks[index];
+        }
+      }
+    }
+
+    if (targetEl) {
+      const frameRect = frame.getBoundingClientRect();
+      const targetRect = targetEl.getBoundingClientRect();
+      const scrollOffset = targetRect.top - frameRect.top;
+      const targetScrollTop = frame.scrollTop + scrollOffset - 24;
+
+      frame.scrollTo({
+        top: Math.max(0, targetScrollTop),
+        behavior: 'smooth',
+      });
+
+      setActiveSectionId(sectionId);
+    }
+  };
+
+  const handleDocumentScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const frame = e.currentTarget;
+    const editor = contentRef.current;
+    if (!editor || sections.length <= 1) return;
+
+    // 1. Near the very top
+    if (frame.scrollTop < 60) {
+      setActiveSectionId(sections[0].id);
+      return;
+    }
+
+    // 2. Near the bottom of document -> activate the last section
+    if (frame.scrollTop + frame.clientHeight >= frame.scrollHeight - 40) {
+      setActiveSectionId(sections[sections.length - 1].id);
+      return;
+    }
+
+    const frameRect = frame.getBoundingClientRect();
+    const threshold = 180; // offset line from top of viewport
+
+    let currentActiveId = sections[0].id;
+
+    for (let i = 1; i < sections.length; i++) {
+      const section = sections[i];
+      let el: HTMLElement | null = null;
+
+      try {
+        el = editor.querySelector(`#${CSS.escape(section.id)}, [data-anchor-id="${CSS.escape(section.id)}"]`) as HTMLElement | null;
+      } catch {
+        el = null;
+      }
+
+      if (!el && section.title) {
+        const targetTitle = section.title.trim().toLowerCase();
+        const candidates = Array.from(editor.querySelectorAll('h1, h2, h3, h4, h5, [data-anchor-title], p')) as HTMLElement[];
+        el = candidates.find((h) => {
+          const t = (h.getAttribute('data-anchor-title') || h.textContent || '').trim().toLowerCase();
+          return t === targetTitle || (t.length < 120 && (t.startsWith(targetTitle) || targetTitle.startsWith(t)));
+        }) || null;
+      }
+
+      if (!el) {
+        const headingsAndAnchors = Array.from(
+          editor.querySelectorAll('h1, h2, h3, h4, [data-anchor-id], [id^="anchor-"]')
+        ) as HTMLElement[];
+        if (headingsAndAnchors[i - 1]) {
+          el = headingsAndAnchors[i - 1];
+        }
+      }
+
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        // If this section has scrolled into or above the threshold
+        if (rect.top - frameRect.top <= threshold) {
+          currentActiveId = section.id;
+        }
+      }
+    }
+
+    setActiveSectionId(currentActiveId);
+  };
 
   // Sync content when active note changes
   useEffect(() => {
@@ -41,7 +214,7 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
       const currentHtml = contentRef.current.innerHTML;
       const noteHtml = note.content || '';
       if (currentHtml !== noteHtml) {
-        contentRef.current.innerHTML = autoConvertUrlsToRichLinks(noteHtml);
+        contentRef.current.innerHTML = cleanLegacyAnchorDividers(autoConvertUrlsToRichLinks(noteHtml));
       }
     }
   }, [note?.id]);
@@ -90,10 +263,6 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
 
       if (targetEl) {
         targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        targetEl.classList.add('transition-all', 'duration-300', 'bg-neutral-100/90', 'rounded-md', 'ring-2', 'ring-neutral-400/40');
-        setTimeout(() => {
-          targetEl?.classList.remove('bg-neutral-100/90', 'ring-2', 'ring-neutral-400/40');
-        }, 1800);
       }
     }, 120);
 
@@ -112,6 +281,11 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
       const range = selection.getRangeAt(0);
       const container = document.createElement('div');
       container.appendChild(range.cloneContents());
+
+      // Strip all anchor elements completely from the copied contents so anchor text/icons are NEVER copied
+      const anchorBlocks = container.querySelectorAll('.note-anchor-block, [data-anchor-id]');
+      const hadAnchors = anchorBlocks.length > 0;
+      anchorBlocks.forEach((el) => el.remove());
 
       const tables = container.querySelectorAll('table');
       const cells = container.querySelectorAll('td, th');
@@ -136,11 +310,14 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
           el.style.padding = '6px 10px';
           el.style.verticalAlign = 'top';
         });
+      }
 
+      // Intercept and write clean content without anchors or with formatted tables
+      if (hadAnchors || tables.length > 0 || cells.length > 0) {
         if (e.clipboardData) {
           e.preventDefault();
           e.clipboardData.setData('text/html', container.innerHTML);
-          e.clipboardData.setData('text/plain', selection.toString());
+          e.clipboardData.setData('text/plain', container.textContent || container.innerText || '');
         }
       }
     };
@@ -248,69 +425,47 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
 
     let initialLabel = 'Розділ';
     const sel = window.getSelection();
+    let targetBlock: HTMLElement | null = null;
+
     if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
       const selectedText = sel.toString().trim();
       if (selectedText && selectedText.length <= 40) {
         initialLabel = selectedText;
       }
+
+      let node: Node | null = range.startContainer;
+      while (node && node !== editor) {
+        if (node.nodeType === 1) {
+          const el = node as HTMLElement;
+          const tag = el.tagName.toLowerCase();
+          if (['p', 'h1', 'h2', 'h3', 'h4', 'div', 'li', 'blockquote'].includes(tag)) {
+            targetBlock = el;
+            break;
+          }
+        }
+        node = node.parentNode;
+      }
     }
 
     const anchorId = 'anchor-' + Math.random().toString(36).substring(2, 9);
-    const anchorBlock = document.createElement('div');
-    anchorBlock.className = 'note-anchor-block my-5 flex items-center gap-2.5 select-none';
-    anchorBlock.setAttribute('data-anchor-id', anchorId);
-    anchorBlock.setAttribute('id', anchorId);
-    anchorBlock.setAttribute('contenteditable', 'false');
-    anchorBlock.innerHTML = `
-      <div class="h-px bg-neutral-200/80 flex-1"></div>
-      <div class="flex items-center gap-1.5 text-xs text-neutral-400 group">
-        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-neutral-400"><circle cx="12" cy="5" r="3"/><line x1="12" y1="22" x2="12" y2="8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/></svg>
-        <span class="anchor-label cursor-text text-neutral-600 hover:text-neutral-900 font-medium px-1.5 py-0.5 rounded outline-none focus:bg-neutral-100 focus:text-neutral-950" contenteditable="true" spellcheck="false">${initialLabel}</span>
-        <button type="button" class="anchor-delete-btn opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-red-600 transition-opacity p-0.5" title="Видалити якір">
-          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="h-px bg-neutral-200/80 flex-1"></div>
-    `;
 
-    const trailingP = document.createElement('p');
-    trailingP.innerHTML = '<br>';
+    if (targetBlock) {
+      targetBlock.id = anchorId;
+      targetBlock.setAttribute('data-anchor-id', anchorId);
+      targetBlock.setAttribute('data-anchor-title', initialLabel);
+    } else {
+      const p = document.createElement('p');
+      p.id = anchorId;
+      p.setAttribute('data-anchor-id', anchorId);
+      p.setAttribute('data-anchor-title', initialLabel);
+      p.textContent = initialLabel;
+      editor.appendChild(p);
+    }
 
     editor.focus();
-
-    let inserted = false;
-
-    if (sel && sel.rangeCount > 0) {
-      const range = sel.getRangeAt(0);
-      if (editor.contains(range.commonAncestorContainer)) {
-        range.deleteContents();
-        range.insertNode(trailingP);
-        range.insertNode(anchorBlock);
-        inserted = true;
-      }
-    }
-
-    if (!inserted) {
-      editor.appendChild(anchorBlock);
-      editor.appendChild(trailingP);
-    }
-
     onUpdateNote({ content: editor.innerHTML });
-
-    // Focus into anchor title so user can rename it immediately
-    setTimeout(() => {
-      const label = anchorBlock.querySelector('.anchor-label') as HTMLElement | null;
-      if (label) {
-        label.focus();
-        const newSel = window.getSelection();
-        if (newSel) {
-          const newRange = document.createRange();
-          newRange.selectNodeContents(label);
-          newSel.removeAllRanges();
-          newSel.addRange(newRange);
-        }
-      }
-    }, 20);
+    setActiveSectionId(anchorId);
   };
 
   const handleAutoPartitionAnchors = (force = true) => {
@@ -320,7 +475,7 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
     const currentHtml = editor.innerHTML;
     const { updatedHtml, addedCount } = autoPartitionNoteWithAnchors(currentHtml, {
       force,
-      minWords: 30,
+      minWords: 25,
     });
 
     if (addedCount > 0) {
@@ -330,20 +485,7 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
   };
 
   const handleContentBlur = () => {
-    const editor = contentRef.current;
-    if (!editor) return;
-
-    // When leaving editor, if note is large and has no anchors, auto-generate them
-    const currentHtml = editor.innerHTML;
-    const { updatedHtml, addedCount } = autoPartitionNoteWithAnchors(currentHtml, {
-      force: false,
-      minWords: 40,
-    });
-
-    if (addedCount > 0) {
-      editor.innerHTML = updatedHtml;
-      onUpdateNote({ content: updatedHtml });
-    }
+    // Normal blur handler - do not inject artificial partitions
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
@@ -357,34 +499,12 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
       handleContentInput();
       return;
     }
-
-    // If pasting multi-paragraph / substantial text (> 40 words or 2+ paragraphs)
-    const wordCount = text.split(/\s+/).filter(Boolean).length;
-    if (wordCount >= 40) {
-      e.preventDefault();
-      const pastedHtml = e.clipboardData.getData('text/html');
-      let htmlToInsert = '';
-      if (pastedHtml) {
-        htmlToInsert = pastedHtml;
-      } else {
-        htmlToInsert = text
-          .split(/\n{2,}/)
-          .map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`)
-          .join('');
-      }
-
-      // Automatically partition with section anchors
-      const { updatedHtml } = autoPartitionNoteWithAnchors(htmlToInsert, { force: true, minWords: 30 });
-      document.execCommand('insertHTML', false, updatedHtml);
-      handleContentInput();
-      return;
-    }
   };
 
   const handleContentClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
 
-    // Handle anchor delete button click
+    // 1. Handle anchor delete button click
     const deleteBtn = target.closest('.anchor-delete-btn') as HTMLElement | null;
     if (deleteBtn) {
       e.preventDefault();
@@ -416,6 +536,13 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Clear formatting shortcut (Ctrl+\ or Ctrl+Shift+X or Meta+\)
+    if ((e.ctrlKey || e.metaKey) && (e.key === '\\' || (e.shiftKey && (e.key === 'X' || e.key === 'x')))) {
+      e.preventDefault();
+      handleClearFormatting();
+      return;
+    }
+
     if (e.key === 'Enter') {
       const selection = window.getSelection();
       let node: Node | null = selection?.anchorNode || null;
@@ -538,9 +665,104 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
     }
   };
 
+  const handleClearFormatting = () => {
+    const editor = contentRef.current;
+    if (!editor) return;
+
+    editor.focus();
+    const selection = window.getSelection();
+
+    if (!selection || selection.rangeCount === 0) {
+      document.execCommand('removeFormat', false);
+      handleContentInput();
+      return;
+    }
+
+    if (selection.isCollapsed) {
+      // If cursor is at a point, remove format for current typing context and reset block if heading/quote
+      document.execCommand('removeFormat', false);
+      document.execCommand('unlink', false);
+      document.execCommand('formatBlock', false, '<p>');
+      handleContentInput();
+      return;
+    }
+
+    // 1. Convert lists to normal paragraphs if selected
+    try {
+      if (document.queryCommandState('insertUnorderedList')) {
+        document.execCommand('insertUnorderedList', false);
+      }
+      if (document.queryCommandState('insertOrderedList')) {
+        document.execCommand('insertOrderedList', false);
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2. Standard document commands
+    document.execCommand('removeFormat', false);
+    document.execCommand('unlink', false);
+    document.execCommand('formatBlock', false, '<p>');
+
+    // 3. Clean any remaining inline style attributes, colors, highlights, font sizes on selected nodes
+    try {
+      const range = selection.getRangeAt(0);
+      let container: Node | null = range.commonAncestorContainer;
+      if (container.nodeType === Node.TEXT_NODE) {
+        container = container.parentElement;
+      }
+
+      if (container && editor.contains(container)) {
+        const isSelectedOrDescendant = (node: Node) => range.intersectsNode(node);
+
+        const styledElements = Array.from(
+          (container as HTMLElement).querySelectorAll('*')
+        ).filter(isSelectedOrDescendant) as HTMLElement[];
+
+        if (container !== editor && isSelectedOrDescendant(container)) {
+          styledElements.push(container as HTMLElement);
+        }
+
+        styledElements.forEach((el) => {
+          const tag = el.tagName.toLowerCase();
+
+          // If wrapper tags that only provide formatting
+          if (['span', 'font', 'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'mark'].includes(tag)) {
+            const parent = el.parentNode;
+            if (parent) {
+              while (el.firstChild) {
+                parent.insertBefore(el.firstChild, el);
+              }
+              parent.removeChild(el);
+            }
+          } else if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'].includes(tag)) {
+            const p = document.createElement('p');
+            p.innerHTML = el.innerHTML;
+            el.parentNode?.replaceChild(p, el);
+          } else if (tag !== 'table' && tag !== 'tbody' && tag !== 'thead' && tag !== 'tr' && tag !== 'td' && tag !== 'th') {
+            el.removeAttribute('style');
+            el.removeAttribute('class');
+            el.removeAttribute('color');
+            el.removeAttribute('face');
+            el.removeAttribute('size');
+          }
+        });
+      }
+    } catch (err) {
+      console.warn('Error during clear formatting:', err);
+    }
+
+    editor.normalize();
+    handleContentInput();
+  };
+
   const handleExecCommand = (command: TextFormatCommand, value: string = '') => {
     if (contentRef.current) {
       contentRef.current.focus();
+      if (command === 'removeFormat') {
+        handleClearFormatting();
+        return;
+      }
       document.execCommand(command, false, value || undefined);
       handleContentInput();
     }
@@ -675,17 +897,46 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
     URL.revokeObjectURL(link.href);
   };
 
+  useImperativeHandle(ref, () => ({
+    execCommand: handleExecCommand,
+    formatBlock: handleFormatBlock,
+    applyFontFamily: handleApplyFontFamily,
+    applyFontSize: handleApplyFontSize,
+    clearFormatting: handleClearFormatting,
+    insertImageFile: handleInsertImageFile,
+    insertAnchor: handleInsertAnchor,
+    autoPartitionAnchors: () => handleAutoPartitionAnchors(true),
+    insertTable: (rows?: number, cols?: number) => handleInsertTable(rows || 3, cols || 3),
+    exportNote: handleExport,
+    changeTextColor: (color: string) => {
+      onChangeTextColor(color);
+      if (contentRef.current) {
+        contentRef.current.focus();
+        document.execCommand('foreColor', false, color);
+        handleContentInput();
+      }
+    },
+    changeHighlightColor: (color: string) => {
+      onChangeHighlightColor(color);
+      if (contentRef.current) {
+        contentRef.current.focus();
+        document.execCommand('hiliteColor', false, color);
+        handleContentInput();
+      }
+    },
+  }));
+
   if (!note) {
     return (
       <main id="editor-empty-state" className="flex-1 flex flex-col items-center justify-center p-8 bg-white text-neutral-400 select-none">
-        <FileText className="w-12 h-12 text-neutral-200 mb-3" strokeWidth={1.5} />
+        <FileText className="w-12 h-12 text-neutral-200 mb-3" strokeWidth={1.75} />
         <p className="text-sm font-medium text-neutral-500 mb-4">
           Оберіть нотатку зі списку або створіть нову
         </p>
         <button
           type="button"
           onClick={onCreateNote}
-          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-lg shadow-xs transition-colors"
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-lg shadow-xs transition-colors cursor-pointer"
         >
           <Plus className="w-4 h-4" strokeWidth={1.75} />
           <span>Нова нотатка</span>
@@ -699,41 +950,12 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
 
   return (
     <main id="editor-main-pane" className="flex-1 flex flex-col min-w-0 bg-white relative">
-      {/* Fixed / Top Formatting Toolbar */}
-      <EditorToolbar
-        isSidebarCollapsed={isSidebarCollapsed}
-        onExecCommand={handleExecCommand}
-        onFormatBlock={handleFormatBlock}
-        onApplyFontFamily={handleApplyFontFamily}
-        onApplyFontSize={handleApplyFontSize}
-        onOpenLinkModal={onOpenLinkModal}
-        onInsertImageFile={handleInsertImageFile}
-        onInsertAnchor={handleInsertAnchor}
-        onAutoPartitionAnchors={() => handleAutoPartitionAnchors(true)}
-        onInsertTable={handleInsertTable}
-        onExport={handleExport}
-        textColor={textColor}
-        onChangeTextColor={(color) => {
-          onChangeTextColor(color);
-          if (contentRef.current) {
-            contentRef.current.focus();
-            document.execCommand('foreColor', false, color);
-            handleContentInput();
-          }
-        }}
-        highlightColor={highlightColor}
-        onChangeHighlightColor={(color) => {
-          onChangeHighlightColor(color);
-          if (contentRef.current) {
-            contentRef.current.focus();
-            document.execCommand('hiliteColor', false, color);
-            handleContentInput();
-          }
-        }}
-      />
-
-      {/* Document Workspace */}
-      <div id="editor-document-frame" className="flex-1 overflow-y-auto px-6 sm:px-12 md:px-16 pt-8 sm:pt-12 pb-24">
+      {/* Document Workspace (Scrolls under the seamless translucent header) */}
+      <div
+        id="editor-document-frame"
+        onScroll={handleDocumentScroll}
+        className="flex-1 overflow-y-auto px-6 sm:px-12 md:px-16 pt-16 sm:pt-20 pb-24"
+      >
         <div className="max-w-3xl mx-auto relative">
           {/* Interactive Table Editor Overlay (Word-like resizing, +/- rows/cols, Word copy) */}
           <TableEditorManager
@@ -754,23 +976,6 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
             />
           </div>
 
-          {/* Smart Auto-Anchor Suggestion Banner if note is large and has no anchors */}
-          {words >= 40 && !note.content.includes('note-anchor-block') && (
-            <div className="mb-4 flex items-center justify-between gap-2 px-3 py-2 bg-neutral-50/90 border border-neutral-200/70 rounded-lg text-xs text-neutral-600">
-              <div className="flex items-center gap-2 min-w-0">
-                <Sparkles className="w-3.5 h-3.5 text-neutral-500 shrink-0" strokeWidth={1.75} />
-                <span className="truncate">Нотатка містить декілька блоків. Розставити автоматичні якорі для розділів?</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleAutoPartitionAnchors(true)}
-                className="px-2.5 py-1 text-xs font-medium text-neutral-900 bg-white border border-neutral-200 hover:bg-neutral-100 rounded shadow-2xs transition-colors cursor-pointer shrink-0"
-              >
-                Розставити якорі
-              </button>
-            </div>
-          )}
-
           {/* Note Rich Content Editable */}
           <div
             ref={contentRef}
@@ -788,8 +993,15 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
         </div>
       </div>
 
+      {/* Vertical Anchor Rail Navigator (Dots) */}
+      <AnchorVerticalRail
+        sections={sections}
+        activeSectionId={activeSectionId}
+        onNavigateToSection={scrollToSection}
+      />
+
       {/* Floating Status Bar */}
-      <footer id="editor-status-bar" className="fixed bottom-4 right-6 text-[11px] text-neutral-400 font-medium flex items-center gap-2 pointer-events-none select-none bg-white/80 backdrop-blur-xs px-2.5 py-1 rounded-full">
+      <footer id="editor-status-bar" className="fixed bottom-4 right-6 text-[11px] text-neutral-500 font-medium flex items-center gap-2 pointer-events-none select-none bg-white/40 backdrop-blur-md border border-neutral-200/40 shadow-xs px-3 py-1 rounded-full">
         <span>{words} слів</span>
         <span>·</span>
         <span>{chars} симв.</span>
@@ -798,4 +1010,4 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
       </footer>
     </main>
   );
-};
+});

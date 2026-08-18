@@ -138,6 +138,21 @@ a.rich-link:hover {
   margin: 0 !important;
 }
 
+/* Note Anchor Inline Badge (Unbroken text flow & excluded from selection copy) */
+.note-anchor-block {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  display: inline-flex !important;
+  vertical-align: middle !important;
+}
+
+.note-anchor-block .anchor-label {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
 .editor-typography img {
   max-width: 100%;
   border-radius: 0.5rem;

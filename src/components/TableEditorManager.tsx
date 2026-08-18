@@ -641,7 +641,7 @@ export const TableEditorManager: React.FC<TableEditorManagerProps> = ({
               title="Вставити стовпчик"
               aria-label="Вставити стовпчик"
             >
-              <Plus className="w-3.5 h-3.5" strokeWidth={2.5} />
+              <Plus className="w-3.5 h-3.5" strokeWidth={1.75} />
             </button>
 
             {/* Quick delete for this column if table has multiple columns */}
@@ -657,7 +657,7 @@ export const TableEditorManager: React.FC<TableEditorManagerProps> = ({
                 title="Видалити цей стовпчик"
                 aria-label="Видалити стовпчик"
               >
-                <Trash2 className="w-3 h-3" />
+                <Trash2 className="w-3 h-3" strokeWidth={1.75} />
               </button>
             )}
           </div>
@@ -681,7 +681,7 @@ export const TableEditorManager: React.FC<TableEditorManagerProps> = ({
               title="Вставити стовпчик"
               aria-label="Вставити стовпчик"
             >
-              <Plus className="w-3.5 h-3.5" strokeWidth={2.5} />
+              <Plus className="w-3.5 h-3.5" strokeWidth={1.75} />
             </button>
           </div>
         </div>
@@ -719,7 +719,7 @@ export const TableEditorManager: React.FC<TableEditorManagerProps> = ({
               title="Вставити рядок"
               aria-label="Вставити рядок"
             >
-              <Plus className="w-3.5 h-3.5" strokeWidth={2.5} />
+              <Plus className="w-3.5 h-3.5" strokeWidth={1.75} />
             </button>
 
             {/* Quick delete for this row if table has multiple rows */}
@@ -735,7 +735,7 @@ export const TableEditorManager: React.FC<TableEditorManagerProps> = ({
                 title="Видалити цей рядок"
                 aria-label="Видалити рядок"
               >
-                <Trash2 className="w-3 h-3" />
+                <Trash2 className="w-3 h-3" strokeWidth={1.75} />
               </button>
             )}
           </div>
@@ -759,7 +759,7 @@ export const TableEditorManager: React.FC<TableEditorManagerProps> = ({
               title="Вставити рядок"
               aria-label="Вставити рядок"
             >
-              <Plus className="w-3.5 h-3.5" strokeWidth={2.5} />
+              <Plus className="w-3.5 h-3.5" strokeWidth={1.75} />
             </button>
           </div>
         </div>

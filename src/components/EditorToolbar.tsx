@@ -1,9 +1,11 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Bold,
   Italic,
   Underline,
   Strikethrough,
+  RemoveFormatting,
   Heading1,
   Heading2,
   Heading3,
@@ -21,14 +23,12 @@ import {
   Sparkles,
   Baseline,
   Highlighter,
-  Eraser,
   Undo,
   Redo,
   Download,
   FileText,
   Code2,
   Type,
-  ChevronDown,
   Table as TableIcon,
 } from 'lucide-react';
 import { TextFormatCommand, BlockFormatCommand } from '../types';
@@ -66,6 +66,7 @@ interface EditorToolbarProps {
   onFormatBlock: (tag: BlockFormatCommand) => void;
   onApplyFontFamily?: (fontFamily: string) => void;
   onApplyFontSize?: (fontSize: string) => void;
+  onClearFormatting?: () => void;
   onOpenLinkModal: () => void;
   onInsertImageFile: (file: File) => void;
   onInsertAnchor?: () => void;
@@ -84,6 +85,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onFormatBlock,
   onApplyFontFamily,
   onApplyFontSize,
+  onClearFormatting,
   onOpenLinkModal,
   onInsertImageFile,
   onInsertAnchor,
@@ -94,43 +96,73 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onChangeTextColor,
   highlightColor,
   onChangeHighlightColor,
-  isSidebarCollapsed = false,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const fontMenuRef = useRef<HTMLDivElement>(null);
-  const sizeMenuRef = useRef<HTMLDivElement>(null);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const fontBtnRef = useRef<HTMLButtonElement>(null);
+  const sizeBtnRef = useRef<HTMLButtonElement>(null);
+  const exportBtnRef = useRef<HTMLButtonElement>(null);
+  const fontDropdownRef = useRef<HTMLDivElement>(null);
+  const sizeDropdownRef = useRef<HTMLDivElement>(null);
+  const exportDropdownRef = useRef<HTMLDivElement>(null);
 
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showFontMenu, setShowFontMenu] = useState(false);
   const [showSizeMenu, setShowSizeMenu] = useState(false);
+
+  const [fontMenuPos, setFontMenuPos] = useState({ top: 0, left: 0 });
+  const [sizeMenuPos, setSizeMenuPos] = useState({ top: 0, left: 0 });
+  const [exportMenuPos, setExportMenuPos] = useState({ top: 0, left: 0 });
+
   const [activeFormats, setActiveFormats] = useState<Record<string, boolean>>({});
   const [currentFontName, setCurrentFontName] = useState('Times New Roman');
   const [currentFontSize, setCurrentFontSize] = useState('16px');
 
-  React.useEffect(() => {
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node;
-      if (fontMenuRef.current && !fontMenuRef.current.contains(target)) {
+      if (
+        fontBtnRef.current &&
+        !fontBtnRef.current.contains(target) &&
+        (!fontDropdownRef.current || !fontDropdownRef.current.contains(target))
+      ) {
         setShowFontMenu(false);
       }
-      if (sizeMenuRef.current && !sizeMenuRef.current.contains(target)) {
+      if (
+        sizeBtnRef.current &&
+        !sizeBtnRef.current.contains(target) &&
+        (!sizeDropdownRef.current || !sizeDropdownRef.current.contains(target))
+      ) {
         setShowSizeMenu(false);
       }
-      if (exportMenuRef.current && !exportMenuRef.current.contains(target)) {
+      if (
+        exportBtnRef.current &&
+        !exportBtnRef.current.contains(target) &&
+        (!exportDropdownRef.current || !exportDropdownRef.current.contains(target))
+      ) {
         setShowExportMenu(false);
       }
     };
 
+    const handleWindowChange = () => {
+      setShowFontMenu(false);
+      setShowSizeMenu(false);
+      setShowExportMenu(false);
+    };
+
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('touchstart', handleClickOutside);
+    window.addEventListener('resize', handleWindowChange);
+    window.addEventListener('scroll', handleWindowChange, true);
+
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('touchstart', handleClickOutside);
+      window.removeEventListener('resize', handleWindowChange);
+      window.removeEventListener('scroll', handleWindowChange, true);
     };
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const updateActiveFormats = () => {
       try {
         const formats: Record<string, boolean> = {
@@ -184,7 +216,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
         setActiveFormats(formats);
       } catch {
-        // ignore in unattached selection environments
+        // ignore
       }
     };
 
@@ -198,6 +230,39 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     };
   }, []);
 
+  const handleToggleFontMenu = () => {
+    if (!showFontMenu && fontBtnRef.current) {
+      const rect = fontBtnRef.current.getBoundingClientRect();
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - 216));
+      setFontMenuPos({ top: rect.bottom + 6, left });
+    }
+    setShowFontMenu((prev) => !prev);
+    setShowSizeMenu(false);
+    setShowExportMenu(false);
+  };
+
+  const handleToggleSizeMenu = () => {
+    if (!showSizeMenu && sizeBtnRef.current) {
+      const rect = sizeBtnRef.current.getBoundingClientRect();
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - 104));
+      setSizeMenuPos({ top: rect.bottom + 6, left });
+    }
+    setShowSizeMenu((prev) => !prev);
+    setShowFontMenu(false);
+    setShowExportMenu(false);
+  };
+
+  const handleToggleExportMenu = () => {
+    if (!showExportMenu && exportBtnRef.current) {
+      const rect = exportBtnRef.current.getBoundingClientRect();
+      const left = Math.max(8, Math.min(rect.right - 180, window.innerWidth - 188));
+      setExportMenuPos({ top: rect.bottom + 6, left });
+    }
+    setShowExportMenu((prev) => !prev);
+    setShowFontMenu(false);
+    setShowSizeMenu(false);
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -206,499 +271,499 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     }
   };
 
+  const getBtnClass = (isActive: boolean) =>
+    `w-7 h-7 shrink-0 flex items-center justify-center rounded-md transition-colors cursor-pointer ${
+      isActive
+        ? 'bg-neutral-200/80 text-neutral-950'
+        : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/70'
+    }`;
+
+  const Divider = () => <div className="w-px h-4 bg-neutral-200/80 mx-0.5 sm:mx-1 shrink-0 select-none" />;
+
   return (
     <div
       id="editor-toolbar"
-      className="w-full bg-white select-none border-b border-neutral-100/80 relative z-30 flex items-center px-4 sm:px-6 py-2 min-h-[46px] transition-all duration-200"
+      className="flex items-center gap-0.5 sm:gap-1 flex-nowrap select-none shrink-0"
     >
-      {/* Left spacer / sidebar toggle clearance */}
-      <div className="w-8 sm:w-12 shrink-0" />
+      {/* 1. Typography: Font Family & Font Size */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        <button
+          ref={fontBtnRef}
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={handleToggleFontMenu}
+          className={getBtnClass(showFontMenu)}
+          title={`Шрифт: ${currentFontName}`}
+          aria-label="Вибір шрифту"
+        >
+          <Type className="w-4 h-4" strokeWidth={1.75} />
+        </button>
 
-      {/* Main Formatting Toolbar - Single-line, centered above editor */}
-      <div className="flex-1 flex items-center justify-center overflow-visible">
-        <div className="flex items-center gap-1 sm:gap-1.5 flex-nowrap overflow-visible">
-          {/* Font Family Dropdown */}
-          <div ref={fontMenuRef} className="relative shrink-0">
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                setShowFontMenu(!showFontMenu);
-                setShowSizeMenu(false);
-              }}
-              className="h-7 px-2 flex items-center gap-1 text-xs font-normal text-neutral-700 hover:text-neutral-950 transition-colors"
-              title="Шрифт"
-            >
-              <span className="truncate max-w-[100px] sm:max-w-[120px]" style={{ fontFamily: currentFontName }}>
-                {currentFontName}
-              </span>
-              <ChevronDown className="w-3 h-3 text-neutral-400" strokeWidth={1.75} />
-            </button>
-
-            {showFontMenu && (
-              <div
-                className="absolute left-0 top-full mt-1.5 w-52 max-h-72 overflow-y-auto bg-white border border-neutral-200/90 rounded-lg shadow-xl py-1 z-50 animate-in fade-in zoom-in-95 duration-100"
-              >
-                {FONT_OPTIONS.map((font) => (
-                  <button
-                    key={font.name}
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setCurrentFontName(font.name);
-                      onApplyFontFamily?.(font.value);
-                      setShowFontMenu(false);
-                    }}
-                    style={{ fontFamily: font.displayStyle }}
-                    className={`w-full px-3 py-1.5 text-xs text-left transition-colors flex items-center justify-between ${
-                      currentFontName === font.name
-                        ? 'text-neutral-950 font-bold bg-neutral-50'
-                        : 'text-neutral-700 hover:bg-neutral-50 hover:text-neutral-950'
-                    }`}
-                  >
-                    <span>{font.name}</span>
-                    {font.name === 'Times New Roman' && (
-                      <span className="text-[10px] text-neutral-400 font-sans">TNR</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Font Size Dropdown */}
-          <div ref={sizeMenuRef} className="relative shrink-0">
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                setShowSizeMenu(!showSizeMenu);
-                setShowFontMenu(false);
-              }}
-              className="h-7 px-1.5 flex items-center gap-0.5 text-xs text-neutral-700 hover:text-neutral-950 transition-colors"
-              title="Розмір шрифту"
-            >
-              <span>{currentFontSize}</span>
-              <ChevronDown className="w-3 h-3 text-neutral-400" strokeWidth={1.75} />
-            </button>
-
-            {showSizeMenu && (
-              <div
-                className="absolute left-0 top-full mt-1.5 w-24 max-h-60 overflow-y-auto bg-white border border-neutral-200/90 rounded-lg shadow-xl py-1 z-50 animate-in fade-in zoom-in-95 duration-100"
-              >
-                {FONT_SIZES.map((size) => (
-                  <button
-                    key={size}
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setCurrentFontSize(size);
-                      onApplyFontSize?.(size);
-                      setShowSizeMenu(false);
-                    }}
-                    className={`w-full px-3 py-1 text-xs text-left transition-colors ${
-                      currentFontSize === size
-                        ? 'text-neutral-950 font-bold bg-neutral-50'
-                        : 'text-neutral-700 hover:bg-neutral-50'
-                    }`}
-                  >
-                    {size}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Divider */}
-          <div className="w-[1px] h-4 bg-neutral-200 mx-0.5 shrink-0" />
-
-          {/* Basic Text Formatting */}
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onExecCommand('bold')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                activeFormats.bold ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Жирний (Ctrl+B)"
-              aria-label="Жирний"
-            >
-              <Bold className="w-4 h-4" strokeWidth={activeFormats.bold ? 2.75 : 1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onExecCommand('italic')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                activeFormats.italic ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Курсив (Ctrl+I)"
-              aria-label="Курсив"
-            >
-              <Italic className="w-4 h-4" strokeWidth={activeFormats.italic ? 2.75 : 1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onExecCommand('underline')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                activeFormats.underline ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Підкреслення (Ctrl+U)"
-              aria-label="Підкреслення"
-            >
-              <Underline className="w-4 h-4" strokeWidth={activeFormats.underline ? 2.75 : 1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onExecCommand('strikeThrough')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                activeFormats.strikeThrough ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Закреслення"
-              aria-label="Закреслення"
-            >
-              <Strikethrough className="w-4 h-4" strokeWidth={activeFormats.strikeThrough ? 2.75 : 1.75} />
-            </button>
-          </div>
-
-          {/* Headings and Paragraphs */}
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onFormatBlock('H1')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors font-semibold text-xs ${
-                activeFormats.h1 ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Заголовок 1"
-              aria-label="Заголовок 1"
-            >
-              <Heading1 className="w-4 h-4" strokeWidth={activeFormats.h1 ? 2.75 : 1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onFormatBlock('H2')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors font-semibold text-xs ${
-                activeFormats.h2 ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Заголовок 2"
-              aria-label="Заголовок 2"
-            >
-              <Heading2 className="w-4 h-4" strokeWidth={activeFormats.h2 ? 2.75 : 1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onFormatBlock('H3')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors font-semibold text-xs ${
-                activeFormats.h3 ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Заголовок 3"
-              aria-label="Заголовок 3"
-            >
-              <Heading3 className="w-4 h-4" strokeWidth={activeFormats.h3 ? 2.75 : 1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onFormatBlock('P')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                activeFormats.p ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Звичайний текст"
-              aria-label="Звичайний текст"
-            >
-              <Pilcrow className="w-4 h-4" strokeWidth={activeFormats.p ? 2.75 : 1.75} />
-            </button>
-          </div>
-
-          {/* Lists, Quote, Code */}
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onExecCommand('insertUnorderedList')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                activeFormats.insertUnorderedList ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Маркований список"
-              aria-label="Маркований список"
-            >
-              <List className="w-4 h-4" strokeWidth={activeFormats.insertUnorderedList ? 2.75 : 1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onExecCommand('insertOrderedList')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                activeFormats.insertOrderedList ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Нумерований список"
-              aria-label="Нумерований список"
-            >
-              <ListOrdered className="w-4 h-4" strokeWidth={activeFormats.insertOrderedList ? 2.75 : 1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onFormatBlock('BLOCKQUOTE')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                activeFormats.blockquote ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Цитата"
-              aria-label="Цитата"
-            >
-              <Quote className="w-4 h-4" strokeWidth={activeFormats.blockquote ? 2.75 : 1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onFormatBlock('PRE')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                activeFormats.pre ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Блок коду"
-              aria-label="Блок коду"
-            >
-              <Code className="w-4 h-4" strokeWidth={activeFormats.pre ? 2.75 : 1.75} />
-            </button>
-          </div>
-
-          {/* Alignment */}
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onExecCommand('justifyLeft')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                activeFormats.justifyLeft ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Вирівняти ліворуч"
-              aria-label="Вирівняти ліворуч"
-            >
-              <AlignLeft className="w-4 h-4" strokeWidth={activeFormats.justifyLeft ? 2.75 : 1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onExecCommand('justifyCenter')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                activeFormats.justifyCenter ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Вирівняти по центру"
-              aria-label="Вирівняти по центру"
-            >
-              <AlignCenter className="w-4 h-4" strokeWidth={activeFormats.justifyCenter ? 2.75 : 1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onExecCommand('justifyRight')}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                activeFormats.justifyRight ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-              }`}
-              title="Вирівняти праворуч"
-              aria-label="Вирівняти праворуч"
-            >
-              <AlignRight className="w-4 h-4" strokeWidth={activeFormats.justifyRight ? 2.75 : 1.75} />
-            </button>
-          </div>
-
-          {/* Links, Media & Table */}
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={onOpenLinkModal}
-              className="w-7 h-7 flex items-center justify-center rounded text-neutral-600 hover:text-neutral-900 transition-colors"
-              title="Вставити посилання"
-              aria-label="Вставити посилання"
-            >
-              <Link2 className="w-4 h-4" strokeWidth={1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => fileInputRef.current?.click()}
-              className="w-7 h-7 flex items-center justify-center rounded text-neutral-600 hover:text-neutral-900 transition-colors"
-              title="Вставити зображення"
-              aria-label="Вставити зображення"
-            >
-              <ImageIcon className="w-4 h-4" strokeWidth={1.75} />
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            {onInsertAnchor && (
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onInsertAnchor();
-                }}
-                className="w-7 h-7 flex items-center justify-center rounded text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
-                title="Вставити якір (розділювач із назвою)"
-                aria-label="Вставити якір"
-              >
-                <Anchor className="w-4 h-4" strokeWidth={1.75} />
-              </button>
-            )}
-            {onAutoPartitionAnchors && (
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onAutoPartitionAnchors();
-                }}
-                className="w-7 h-7 flex items-center justify-center rounded text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
-                title="Автоматично розставити якорі розділів"
-                aria-label="Автоматично розставити якорі розділів"
-              >
-                <Sparkles className="w-3.5 h-3.5" strokeWidth={1.75} />
-              </button>
-            )}
-            {onInsertTable && (
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onInsertTable();
-                }}
-                className="w-7 h-7 flex items-center justify-center rounded text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
-                title="Вставити таблицю (3х3)"
-                aria-label="Вставити таблицю"
-              >
-                <TableIcon className="w-4 h-4" strokeWidth={1.75} />
-              </button>
-            )}
-          </div>
-
-          {/* Colors & Highlight */}
-          <div className="flex items-center gap-0.5 shrink-0">
-            <label
-              className="relative w-7 h-7 flex items-center justify-center rounded cursor-pointer text-neutral-600 hover:text-neutral-900 transition-colors"
-              title="Колір тексту"
-            >
-              <Baseline className="w-4 h-4" strokeWidth={1.75} />
-              <input
-                type="color"
-                value={textColor}
-                onChange={(e) => onChangeTextColor(e.target.value)}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              />
-            </label>
-            <label
-              className="relative w-7 h-7 flex items-center justify-center rounded cursor-pointer text-neutral-600 hover:text-neutral-900 transition-colors"
-              title="Маркер виділення"
-            >
-              <Highlighter className="w-4 h-4" strokeWidth={1.75} />
-              <input
-                type="color"
-                value={highlightColor}
-                onChange={(e) => onChangeHighlightColor(e.target.value)}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              />
-            </label>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onExecCommand('removeFormat')}
-              className="w-7 h-7 flex items-center justify-center rounded text-neutral-600 hover:text-neutral-900 transition-colors"
-              title="Очистити форматування"
-              aria-label="Очистити форматування"
-            >
-              <Eraser className="w-4 h-4" strokeWidth={1.75} />
-            </button>
-          </div>
-
-          {/* Undo & Redo */}
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onExecCommand('undo')}
-              className="w-7 h-7 flex items-center justify-center rounded text-neutral-600 hover:text-neutral-900 transition-colors"
-              title="Скасувати (Ctrl+Z)"
-              aria-label="Скасувати"
-            >
-              <Undo className="w-4 h-4" strokeWidth={1.75} />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onExecCommand('redo')}
-              className="w-7 h-7 flex items-center justify-center rounded text-neutral-600 hover:text-neutral-900 transition-colors"
-              title="Повторити (Ctrl+Y)"
-              aria-label="Повторити"
-            >
-              <Redo className="w-4 h-4" strokeWidth={1.75} />
-            </button>
-          </div>
-        </div>
+        <button
+          ref={sizeBtnRef}
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={handleToggleSizeMenu}
+          className={getBtnClass(showSizeMenu)}
+          title={`Розмір шрифту: ${currentFontSize}`}
+          aria-label="Розмір шрифту"
+        >
+          <span className="text-[14px] font-semibold leading-none select-none">
+            A
+          </span>
+        </button>
       </div>
 
-      {/* Export dropdown separated to the right side */}
-      <div ref={exportMenuRef} className="shrink-0 relative ml-2">
+      <Divider />
+
+      {/* 2. Basic Text Formatting */}
+      <div className="flex items-center gap-0.5 shrink-0">
         <button
           type="button"
-          onClick={() => setShowExportMenu(!showExportMenu)}
-          className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-            showExportMenu ? 'text-neutral-950 font-bold' : 'text-neutral-600 hover:text-neutral-900'
-          }`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onExecCommand('bold')}
+          className={getBtnClass(!!activeFormats.bold)}
+          title="Жирний (Ctrl+B)"
+          aria-label="Жирний"
+        >
+          <Bold className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onExecCommand('italic')}
+          className={getBtnClass(!!activeFormats.italic)}
+          title="Курсив (Ctrl+I)"
+          aria-label="Курсив"
+        >
+          <Italic className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onExecCommand('underline')}
+          className={getBtnClass(!!activeFormats.underline)}
+          title="Підкреслення (Ctrl+U)"
+          aria-label="Підкреслення"
+        >
+          <Underline className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onExecCommand('strikeThrough')}
+          className={getBtnClass(!!activeFormats.strikeThrough)}
+          title="Закреслення"
+          aria-label="Закреслення"
+        >
+          <Strikethrough className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            if (onClearFormatting) {
+              onClearFormatting();
+            } else {
+              onExecCommand('removeFormat');
+            }
+          }}
+          className={getBtnClass(false)}
+          title="Очистити форматування"
+          aria-label="Очистити форматування"
+        >
+          <RemoveFormatting className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+      </div>
+
+      <Divider />
+
+      {/* 3. Headings and Paragraphs */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onFormatBlock('H1')}
+          className={getBtnClass(!!activeFormats.h1)}
+          title="Заголовок 1"
+          aria-label="Заголовок 1"
+        >
+          <Heading1 className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onFormatBlock('H2')}
+          className={getBtnClass(!!activeFormats.h2)}
+          title="Заголовок 2"
+          aria-label="Заголовок 2"
+        >
+          <Heading2 className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onFormatBlock('H3')}
+          className={getBtnClass(!!activeFormats.h3)}
+          title="Заголовок 3"
+          aria-label="Заголовок 3"
+        >
+          <Heading3 className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onFormatBlock('P')}
+          className={getBtnClass(!!activeFormats.p)}
+          title="Звичайний текст"
+          aria-label="Звичайний текст"
+        >
+          <Pilcrow className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+      </div>
+
+      <Divider />
+
+      {/* 4. Lists, Quote, Code */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onExecCommand('insertUnorderedList')}
+          className={getBtnClass(!!activeFormats.insertUnorderedList)}
+          title="Маркований список"
+          aria-label="Маркований список"
+        >
+          <List className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onExecCommand('insertOrderedList')}
+          className={getBtnClass(!!activeFormats.insertOrderedList)}
+          title="Нумерований список"
+          aria-label="Нумерований список"
+        >
+          <ListOrdered className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onFormatBlock('BLOCKQUOTE')}
+          className={getBtnClass(!!activeFormats.blockquote)}
+          title="Цитата"
+          aria-label="Цитата"
+        >
+          <Quote className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onFormatBlock('PRE')}
+          className={getBtnClass(!!activeFormats.pre)}
+          title="Блок коду"
+          aria-label="Блок коду"
+        >
+          <Code className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+      </div>
+
+      <Divider />
+
+      {/* 5. Alignment */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onExecCommand('justifyLeft')}
+          className={getBtnClass(!!activeFormats.justifyLeft)}
+          title="Вирівняти ліворуч"
+          aria-label="Вирівняти ліворуч"
+        >
+          <AlignLeft className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onExecCommand('justifyCenter')}
+          className={getBtnClass(!!activeFormats.justifyCenter)}
+          title="Вирівняти по центру"
+          aria-label="Вирівняти по центру"
+        >
+          <AlignCenter className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onExecCommand('justifyRight')}
+          className={getBtnClass(!!activeFormats.justifyRight)}
+          title="Вирівняти праворуч"
+          aria-label="Вирівняти праворуч"
+        >
+          <AlignRight className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+      </div>
+
+      <Divider />
+
+      {/* 6. Links, Media & Table */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onOpenLinkModal}
+          className={getBtnClass(false)}
+          title="Вставити посилання"
+          aria-label="Вставити посилання"
+        >
+          <Link2 className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => fileInputRef.current?.click()}
+          className={getBtnClass(false)}
+          title="Вставити зображення"
+          aria-label="Вставити зображення"
+        >
+          <ImageIcon className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        {onInsertAnchor && (
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onInsertAnchor();
+            }}
+            className={getBtnClass(false)}
+            title="Вставити якір (розділювач із назвою)"
+            aria-label="Вставити якір"
+          >
+            <Anchor className="w-4 h-4" strokeWidth={1.75} />
+          </button>
+        )}
+        {onAutoPartitionAnchors && (
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onAutoPartitionAnchors();
+            }}
+            className={getBtnClass(false)}
+            title="Автоматично розставити якорі розділів"
+            aria-label="Автоматично розставити якорі розділів"
+          >
+            <Sparkles className="w-4 h-4" strokeWidth={1.75} />
+          </button>
+        )}
+        {onInsertTable && (
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onInsertTable();
+            }}
+            className={getBtnClass(false)}
+            title="Вставити таблицю (3х3)"
+            aria-label="Вставити таблицю"
+          >
+            <TableIcon className="w-4 h-4" strokeWidth={1.75} />
+          </button>
+        )}
+      </div>
+
+      <Divider />
+
+      {/* 7. Colors & Highlight */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        <label
+          className="relative w-7 h-7 shrink-0 flex items-center justify-center rounded-md cursor-pointer text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/70 transition-colors"
+          title="Колір тексту"
+        >
+          <Baseline className="w-4 h-4" strokeWidth={1.75} />
+          <input
+            type="color"
+            value={textColor}
+            onChange={(e) => onChangeTextColor(e.target.value)}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          />
+        </label>
+        <label
+          className="relative w-7 h-7 shrink-0 flex items-center justify-center rounded-md cursor-pointer text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/70 transition-colors"
+          title="Маркер виділення"
+        >
+          <Highlighter className="w-4 h-4" strokeWidth={1.75} />
+          <input
+            type="color"
+            value={highlightColor}
+            onChange={(e) => onChangeHighlightColor(e.target.value)}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          />
+        </label>
+      </div>
+
+      <Divider />
+
+      {/* 8. Undo & Redo */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onExecCommand('undo')}
+          className={getBtnClass(false)}
+          title="Скасувати (Ctrl+Z)"
+          aria-label="Скасувати"
+        >
+          <Undo className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onExecCommand('redo')}
+          className={getBtnClass(false)}
+          title="Повторити (Ctrl+Y)"
+          aria-label="Повторити"
+        >
+          <Redo className="w-4 h-4" strokeWidth={1.75} />
+        </button>
+      </div>
+
+      <Divider />
+
+      {/* 9. Export dropdown */}
+      <div className="shrink-0 relative">
+        <button
+          ref={exportBtnRef}
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={handleToggleExportMenu}
+          className={getBtnClass(showExportMenu)}
           title="Експорт нотатки"
           aria-label="Експорт нотатки"
         >
-          <Download className="w-4 h-4" strokeWidth={showExportMenu ? 2.75 : 1.75} />
+          <Download className="w-4 h-4" strokeWidth={1.75} />
         </button>
+      </div>
 
-        {showExportMenu && (
+      {/* ================= PORTAL DROPDOWNS (IMMUNE TO OVERFLOW CLIPPING) ================= */}
+      {showFontMenu &&
+        createPortal(
           <div
-            className="absolute right-0 top-full mt-1.5 w-44 bg-white border border-neutral-200/90 rounded-lg shadow-xl py-1 z-50 animate-in fade-in zoom-in-95 duration-100"
+            ref={fontDropdownRef}
+            style={{ top: `${fontMenuPos.top}px`, left: `${fontMenuPos.left}px` }}
+            className="fixed w-52 max-h-72 overflow-y-auto bg-white border border-neutral-200/90 rounded-lg shadow-xl py-1 z-[9999] animate-in fade-in zoom-in-95 duration-100"
+          >
+            {FONT_OPTIONS.map((font) => (
+              <button
+                key={font.name}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setCurrentFontName(font.name);
+                  onApplyFontFamily?.(font.value);
+                  setShowFontMenu(false);
+                }}
+                style={{ fontFamily: font.displayStyle }}
+                className={`w-full px-3 py-1.5 text-xs text-left transition-colors flex items-center justify-between cursor-pointer ${
+                  currentFontName === font.name
+                    ? 'text-neutral-950 font-bold bg-neutral-50'
+                    : 'text-neutral-700 hover:bg-neutral-50 hover:text-neutral-950'
+                }`}
+              >
+                <span>{font.name}</span>
+                {font.name === 'Times New Roman' && (
+                  <span className="text-[10px] text-neutral-400 font-sans">TNR</span>
+                )}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+
+      {showSizeMenu &&
+        createPortal(
+          <div
+            ref={sizeDropdownRef}
+            style={{ top: `${sizeMenuPos.top}px`, left: `${sizeMenuPos.left}px` }}
+            className="fixed w-24 max-h-60 overflow-y-auto bg-white border border-neutral-200/90 rounded-lg shadow-xl py-1 z-[9999] animate-in fade-in zoom-in-95 duration-100"
+          >
+            {FONT_SIZES.map((size) => (
+              <button
+                key={size}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setCurrentFontSize(size);
+                  onApplyFontSize?.(size);
+                  setShowSizeMenu(false);
+                }}
+                className={`w-full px-3 py-1 text-xs text-left transition-colors cursor-pointer ${
+                  currentFontSize === size
+                    ? 'text-neutral-950 font-bold bg-neutral-50'
+                    : 'text-neutral-700 hover:bg-neutral-50'
+                }`}
+              >
+                {size}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+
+      {showExportMenu &&
+        createPortal(
+          <div
+            ref={exportDropdownRef}
+            style={{ top: `${exportMenuPos.top}px`, left: `${exportMenuPos.left}px` }}
+            className="fixed w-44 bg-white border border-neutral-200/90 rounded-lg shadow-xl py-1 z-[9999] animate-in fade-in zoom-in-95 duration-100"
           >
             <button
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 onExport('markdown');
                 setShowExportMenu(false);
               }}
-              className="w-full px-3 py-1.5 text-xs text-left flex items-center gap-2 text-neutral-700 hover:bg-neutral-50 transition-colors"
+              className="w-full px-3 py-1.5 text-xs text-left flex items-center gap-2 text-neutral-700 hover:bg-neutral-50 transition-colors cursor-pointer"
             >
               <Code2 className="w-3.5 h-3.5 text-neutral-500" strokeWidth={1.75} />
               <span>Експорт у Markdown</span>
             </button>
             <button
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 onExport('html');
                 setShowExportMenu(false);
               }}
-              className="w-full px-3 py-1.5 text-xs text-left flex items-center gap-2 text-neutral-700 hover:bg-neutral-50 transition-colors"
+              className="w-full px-3 py-1.5 text-xs text-left flex items-center gap-2 text-neutral-700 hover:bg-neutral-50 transition-colors cursor-pointer"
             >
               <FileText className="w-3.5 h-3.5 text-neutral-500" strokeWidth={1.75} />
               <span>Експорт у HTML</span>
             </button>
             <button
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 onExport('txt');
                 setShowExportMenu(false);
               }}
-              className="w-full px-3 py-1.5 text-xs text-left flex items-center gap-2 text-neutral-700 hover:bg-neutral-50 transition-colors"
+              className="w-full px-3 py-1.5 text-xs text-left flex items-center gap-2 text-neutral-700 hover:bg-neutral-50 transition-colors cursor-pointer"
             >
               <FileText className="w-3.5 h-3.5 text-neutral-500" strokeWidth={1.75} />
               <span>Експорт у TXT</span>
             </button>
-          </div>
+          </div>,
+          document.body
         )}
-      </div>
     </div>
   );
 };
+

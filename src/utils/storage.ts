@@ -105,9 +105,49 @@ if (focusMode) {
   }
 ];
 
+// In-memory fallback in case localStorage is disabled, blocked in private mode, or full
+const memoryStore = new Map<string, string>();
+
+export function safeGetItem(key: string): string | null {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const val = window.localStorage.getItem(key);
+      if (val !== null) return val;
+    }
+  } catch (e) {
+    console.warn(`[Storage] Unable to access localStorage for "${key}":`, e);
+  }
+  return memoryStore.get(key) ?? null;
+}
+
+export function safeSetItem(key: string, value: string): boolean {
+  // Always update in-memory cache
+  memoryStore.set(key, value);
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(key, value);
+      return true;
+    }
+  } catch (e) {
+    console.warn(`[Storage] Unable to save "${key}" to localStorage (quota or privacy restriction):`, e);
+  }
+  return false;
+}
+
+export function safeRemoveItem(key: string): void {
+  memoryStore.delete(key);
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem(key);
+    }
+  } catch (e) {
+    console.warn(`[Storage] Unable to remove "${key}" from localStorage:`, e);
+  }
+}
+
 export function loadSavedNotes(): Note[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = safeGetItem(STORAGE_KEY);
     if (!raw) return INITIAL_NOTES;
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -121,16 +161,16 @@ export function loadSavedNotes(): Note[] {
     }
     return INITIAL_NOTES;
   } catch (e) {
-    console.error('Error loading notes from storage:', e);
+    console.error('[Storage] Error loading notes:', e);
     return INITIAL_NOTES;
   }
 }
 
 export function saveNotesToStorage(notes: Note[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+    safeSetItem(STORAGE_KEY, JSON.stringify(notes));
   } catch (e) {
-    console.error('Error saving notes to storage:', e);
+    console.error('[Storage] Error serializing notes:', e);
   }
 }
 
@@ -151,7 +191,7 @@ export const INITIAL_FOLDERS: Folder[] = [
 
 export function loadSavedFolders(): Folder[] {
   try {
-    const raw = localStorage.getItem(FOLDERS_STORAGE_KEY);
+    const raw = safeGetItem(FOLDERS_STORAGE_KEY);
     if (!raw) return INITIAL_FOLDERS;
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
@@ -159,35 +199,57 @@ export function loadSavedFolders(): Folder[] {
     }
     return INITIAL_FOLDERS;
   } catch (e) {
-    console.error('Error loading folders:', e);
+    console.error('[Storage] Error loading folders:', e);
     return INITIAL_FOLDERS;
   }
 }
 
 export function saveFoldersToStorage(folders: Folder[]): void {
   try {
-    localStorage.setItem(FOLDERS_STORAGE_KEY, JSON.stringify(folders));
+    safeSetItem(FOLDERS_STORAGE_KEY, JSON.stringify(folders));
   } catch (e) {
-    console.error('Error saving folders:', e);
+    console.error('[Storage] Error serializing folders:', e);
   }
 }
 
 export function loadSavedLinkFolderMap(): Record<string, string> {
   try {
-    const raw = localStorage.getItem(LINK_FOLDERS_STORAGE_KEY);
+    const raw = safeGetItem(LINK_FOLDERS_STORAGE_KEY);
     if (!raw) return {};
-    return JSON.parse(raw) || {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed;
+    }
+    return {};
   } catch (e) {
-    console.error('Error loading link folders:', e);
+    console.error('[Storage] Error loading link folders:', e);
     return {};
   }
 }
 
 export function saveLinkFolderMapToStorage(map: Record<string, string>): void {
   try {
-    localStorage.setItem(LINK_FOLDERS_STORAGE_KEY, JSON.stringify(map));
+    safeSetItem(LINK_FOLDERS_STORAGE_KEY, JSON.stringify(map));
   } catch (e) {
-    console.error('Error saving link folders:', e);
+    console.error('[Storage] Error serializing link folders:', e);
   }
+}
+
+/**
+ * Pure function to calculate a Set containing rootFolderId and all its recursive sub-folder IDs.
+ */
+export function getFolderAndSubfolderIds(rootFolderId: string, allFolders: Folder[]): Set<string> {
+  const result = new Set<string>([rootFolderId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const f of allFolders) {
+      if (f.parentId && result.has(f.parentId) && !result.has(f.id)) {
+        result.add(f.id);
+        changed = true;
+      }
+    }
+  }
+  return result;
 }
 

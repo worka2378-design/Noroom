@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Search, X, FolderPlus, FileText, Link2, Plus } from 'lucide-react';
 import { Note, Folder } from './types';
 import {
   loadSavedNotes,
@@ -15,6 +16,9 @@ import {
   sortNotes,
   uid,
   SIDEBAR_STATE_KEY,
+  safeGetItem,
+  safeSetItem,
+  getFolderAndSubfolderIds,
 } from './utils/storage';
 import {
   createGraphicLinkHtml,
@@ -22,8 +26,10 @@ import {
   removeLinkFromContent,
   ExtractedLink,
 } from './utils/links';
-import { Sidebar } from './components/Sidebar';
-import { EditorPane } from './components/EditorPane';
+import { syncAutoFolders } from './utils/autoFolders';
+import { Sidebar, SidebarHandle } from './components/Sidebar';
+import { EditorPane, EditorPaneHandle } from './components/EditorPane';
+import { EditorToolbar } from './components/EditorToolbar';
 import { LinkModal } from './components/LinkModal';
 import { LogoIcon } from './components/LogoIcon';
 
@@ -41,16 +47,15 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'notes' | 'links'>('notes');
   const [searchTerm, setSearchTerm] = useState('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(SIDEBAR_STATE_KEY) === 'collapsed';
-    } catch {
-      return false;
-    }
+    return safeGetItem(SIDEBAR_STATE_KEY) === 'collapsed';
   });
 
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [textColor, setTextColor] = useState('#1b1c1e');
   const [highlightColor, setHighlightColor] = useState('#fef08a');
+
+  const sidebarRef = useRef<SidebarHandle>(null);
+  const editorPaneRef = useRef<EditorPaneHandle>(null);
 
   // Debounced storage save
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -80,11 +85,7 @@ export default function App() {
   const toggleSidebar = () => {
     setIsSidebarCollapsed((prev) => {
       const next = !prev;
-      try {
-        localStorage.setItem(SIDEBAR_STATE_KEY, next ? 'collapsed' : 'expanded');
-      } catch (e) {
-        console.error(e);
-      }
+      safeSetItem(SIDEBAR_STATE_KEY, next ? 'collapsed' : 'expanded');
       return next;
     });
   };
@@ -92,27 +93,95 @@ export default function App() {
   const handleToggleViewMode = () => {
     if (isSidebarCollapsed) {
       setIsSidebarCollapsed(false);
-      try {
-        localStorage.setItem(SIDEBAR_STATE_KEY, 'expanded');
-      } catch (e) {
-        console.error(e);
-      }
+      safeSetItem(SIDEBAR_STATE_KEY, 'expanded');
     }
     setViewMode((prev) => (prev === 'links' ? 'notes' : 'links'));
   };
 
+  // Auto-sync folders and sub-folders based on links and headings in notes
+  useEffect(() => {
+    const result = syncAutoFolders(notes, folders, linkFolderMap);
+    if (result.hasChanges) {
+      setFolders(result.updatedFolders);
+      setLinkFolderMap(result.updatedLinkFolderMap);
+      persistFolders(result.updatedFolders);
+      persistLinkFolderMap(result.updatedLinkFolderMap);
+    }
+  }, [notes, folders, linkFolderMap, persistFolders, persistLinkFolderMap]);
+
   // Folder Operations
   const handleAddFolder = useCallback(
-    (type: 'notes' | 'links') => {
+    (type: 'notes' | 'links', parentId?: string | null): string => {
+      const newId = 'f-' + uid();
       const newFolder: Folder = {
-        id: 'f-' + uid(),
-        name: type === 'notes' ? 'Нова папка' : 'Папка посилань',
+        id: newId,
+        name: parentId
+          ? 'Нова під-папка'
+          : type === 'notes'
+          ? 'Нова папка'
+          : 'Папка посилань',
         type,
+        parentId: parentId || null,
         collapsed: false,
+        interacted: true,
       };
 
       setFolders((prev) => {
-        const next = [...prev, newFolder];
+        // Expand parent if it was collapsed
+        const next = prev.map((f) =>
+          f.id === parentId ? { ...f, collapsed: false, interacted: true } : f
+        );
+        const updated = [...next, newFolder];
+        persistFolders(updated);
+        return updated;
+      });
+
+      return newId;
+    },
+    [persistFolders]
+  );
+
+  const handleMoveFolderToFolder = useCallback(
+    (sourceFolderId: string, targetParentId: string | null) => {
+      if (sourceFolderId === targetParentId) return;
+
+      setFolders((prev) => {
+        // Circular reference prevention: ensure targetParentId is not a descendant of sourceFolderId
+        if (targetParentId) {
+          let curr = prev.find((f) => f.id === targetParentId);
+          while (curr) {
+            if (curr.id === sourceFolderId) {
+              return prev; // Cannot move parent into its own child/descendant
+            }
+            curr = curr.parentId ? prev.find((f) => f.id === curr!.parentId) : undefined;
+          }
+        }
+
+        const next = prev.map((f) => {
+          if (f.id === sourceFolderId) {
+            return { ...f, parentId: targetParentId, interacted: true };
+          }
+          if (targetParentId && f.id === targetParentId) {
+            return { ...f, collapsed: false, interacted: true };
+          }
+          return f;
+        });
+
+        persistFolders(next);
+        return next;
+      });
+    },
+    [persistFolders]
+  );
+
+  const handleMarkFolderInteracted = useCallback(
+    (folderId: string) => {
+      setFolders((prev) => {
+        const folder = prev.find((f) => f.id === folderId);
+        if (!folder || folder.interacted) return prev;
+        const next = prev.map((f) =>
+          f.id === folderId ? { ...f, interacted: true } : f
+        );
         persistFolders(next);
         return next;
       });
@@ -124,7 +193,7 @@ export default function App() {
     (folderId: string) => {
       setFolders((prev) => {
         const next = prev.map((f) =>
-          f.id === folderId ? { ...f, collapsed: !f.collapsed } : f
+          f.id === folderId ? { ...f, collapsed: !f.collapsed, interacted: true } : f
         );
         persistFolders(next);
         return next;
@@ -137,7 +206,7 @@ export default function App() {
     (folderId: string, newName: string) => {
       setFolders((prev) => {
         const next = prev.map((f) =>
-          f.id === folderId ? { ...f, name: newName } : f
+          f.id === folderId ? { ...f, name: newName, interacted: true } : f
         );
         persistFolders(next);
         return next;
@@ -148,18 +217,20 @@ export default function App() {
 
   const handleDeleteFolder = useCallback(
     (folderId: string) => {
-      if (!window.confirm('Видалити цю папку? (Вміст залишиться у списку)')) return;
+      if (!window.confirm('Видалити цю папку та її під-папки? (Вміст залишиться у списку)')) return;
+
+      const idsToDelete = getFolderAndSubfolderIds(folderId, folders);
 
       setFolders((prev) => {
-        const next = prev.filter((f) => f.id !== folderId);
+        const next = prev.filter((f) => !idsToDelete.has(f.id));
         persistFolders(next);
         return next;
       });
 
-      // Clear folderId from notes in this folder
+      // Clear folderId from notes in deleted folders
       setNotes((prev) => {
         const updated = prev.map((n) =>
-          n.folderId === folderId ? { ...n, folderId: null } : n
+          n.folderId && idsToDelete.has(n.folderId) ? { ...n, folderId: null } : n
         );
         persistNotes(updated);
         return updated;
@@ -169,7 +240,7 @@ export default function App() {
       setLinkFolderMap((prev) => {
         const updated = { ...prev };
         Object.keys(updated).forEach((k) => {
-          if (updated[k] === folderId) {
+          if (idsToDelete.has(updated[k])) {
             delete updated[k];
           }
         });
@@ -177,11 +248,20 @@ export default function App() {
         return updated;
       });
     },
-    [persistFolders, persistNotes, persistLinkFolderMap]
+    [folders, persistFolders, persistNotes, persistLinkFolderMap]
   );
 
   const handleMoveNoteToFolder = useCallback(
     (noteId: string, folderId: string | null) => {
+      if (folderId) {
+        setFolders((prev) => {
+          const next = prev.map((f) =>
+            f.id === folderId ? { ...f, interacted: true } : f
+          );
+          persistFolders(next);
+          return next;
+        });
+      }
       setNotes((prev) => {
         const updated = prev.map((n) =>
           n.id === noteId ? { ...n, folderId, updated: Date.now() } : n
@@ -190,11 +270,20 @@ export default function App() {
         return updated;
       });
     },
-    [persistNotes]
+    [persistFolders, persistNotes]
   );
 
   const handleMoveLinkToFolder = useCallback(
     (linkId: string, folderId: string | null) => {
+      if (folderId) {
+        setFolders((prev) => {
+          const next = prev.map((f) =>
+            f.id === folderId ? { ...f, interacted: true } : f
+          );
+          persistFolders(next);
+          return next;
+        });
+      }
       setLinkFolderMap((prev) => {
         const updated = { ...prev };
         if (folderId) {
@@ -206,7 +295,7 @@ export default function App() {
         return updated;
       });
     },
-    [persistLinkFolderMap]
+    [persistFolders, persistLinkFolderMap]
   );
 
   const handleCreateNote = useCallback(() => {
@@ -386,60 +475,178 @@ export default function App() {
   const activeNote = notes.find((n) => n.id === activeId) || null;
 
   return (
-    <div className="relative w-full h-screen flex bg-white text-neutral-900 overflow-hidden font-sans">
-      {/* Signature Logo Toggle Button in Top Header */}
-      <button
-        id="app-logo-toggle-btn"
-        type="button"
-        onClick={toggleSidebar}
-        title={isSidebarCollapsed ? 'Розгорнути панель' : 'Згорнути панель'}
-        aria-label="Згорнути / розгорнути панель"
-        className="fixed left-3.5 top-2.5 z-40 flex items-center justify-center w-8 h-8 rounded-lg text-neutral-900 hover:text-neutral-600 transition-colors cursor-pointer group"
+    <div className="relative w-full h-screen flex flex-col bg-white text-neutral-900 overflow-hidden font-sans">
+      {/* ================= ONE UNIFIED SEAMLESS TOP HEADER (Frosted Glass Full Width) ================= */}
+      <header
+        id="app-top-header"
+        className="fixed top-0 left-0 right-0 z-30 h-13 min-h-[50px] bg-white/40 backdrop-blur-md border-b border-neutral-200/40 flex items-center px-3 sm:px-4 select-none"
       >
-        <LogoIcon className="w-5 h-5 transition-transform duration-200 group-hover:scale-105" />
-      </button>
+        {/* Left Side: Sidebar Controls (aligned seamlessly with sidebar width) */}
+        <div
+          className={`flex items-center transition-all duration-200 shrink-0 ${
+            isSidebarCollapsed ? 'w-10' : 'w-64 sm:w-72'
+          }`}
+        >
+          {/* Signature Logo Toggle Button */}
+          <button
+            id="app-logo-toggle-btn"
+            type="button"
+            onClick={toggleSidebar}
+            title={isSidebarCollapsed ? 'Розгорнути панель' : 'Згорнути панель'}
+            aria-label="Згорнути / розгорнути панель"
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-neutral-900 hover:text-neutral-600 transition-colors cursor-pointer group shrink-0"
+          >
+            <LogoIcon className="w-5 h-5 transition-transform duration-200 group-hover:scale-105" />
+          </button>
 
-      {/* Sidebar navigation */}
-      <Sidebar
-        notes={notes}
-        activeId={activeId}
-        searchTerm={searchTerm}
-        onSearchChange={setSearchTerm}
-        onSelectNote={handleSelectNote}
-        onCreateNote={handleCreateNote}
-        onCopyNote={handleCopyNote}
-        onTogglePin={handleTogglePin}
-        onToggleMarked={handleToggleMarked}
-        onDeleteNote={handleDeleteNote}
-        isCollapsed={isSidebarCollapsed}
-        viewMode={viewMode}
-        onToggleViewMode={handleToggleViewMode}
-        extractedLinks={extractedLinks}
-        onNavigateToNote={handleNavigateToNote}
-        onDeleteLink={handleDeleteLink}
-        folders={folders}
-        onAddFolder={handleAddFolder}
-        onToggleFolder={handleToggleFolder}
-        onRenameFolder={handleRenameFolder}
-        onDeleteFolder={handleDeleteFolder}
-        onMoveNoteToFolder={handleMoveNoteToFolder}
-        linkFolderMap={linkFolderMap}
-        onMoveLinkToFolder={handleMoveLinkToFolder}
-      />
+          {!isSidebarCollapsed && (
+            <div className="flex items-center gap-1.5 flex-1 min-w-0 pl-2 pr-3">
+              {/* Search Bar */}
+              <div className="relative flex-1 min-w-0">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" strokeWidth={1.75} />
+                <input
+                  id="sidebar-search-input"
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Пошук"
+                  className="w-full pl-8 pr-7 py-1.5 text-xs bg-white/50 hover:bg-white/70 focus:bg-white/90 border border-neutral-200/50 focus:border-neutral-300 rounded-lg outline-none transition-colors placeholder:text-neutral-400 backdrop-blur-xs"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-neutral-400 hover:text-neutral-800 transition-colors cursor-pointer"
+                    title="Очистити пошук"
+                    aria-label="Очистити пошук"
+                  >
+                    <X className="w-3 h-3" strokeWidth={1.75} />
+                  </button>
+                )}
+              </div>
 
-      {/* Main editor area */}
-      <EditorPane
-        note={activeNote}
-        targetAnchorId={targetAnchorId}
-        isSidebarCollapsed={isSidebarCollapsed}
-        onUpdateNote={handleUpdateActiveNote}
-        onCreateNote={handleCreateNote}
-        onOpenLinkModal={() => setIsLinkModalOpen(true)}
-        textColor={textColor}
-        onChangeTextColor={setTextColor}
-        highlightColor={highlightColor}
-        onChangeHighlightColor={setHighlightColor}
-      />
+              {/* Add Folder Button */}
+              <button
+                id="sidebar-add-folder-btn"
+                type="button"
+                onClick={() => sidebarRef.current?.createFolderDirectly(null)}
+                title={viewMode === 'links' ? 'Створити головну папку для посилань' : 'Створити головну папку'}
+                aria-label="Створити головну папку"
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/80 transition-colors shrink-0 cursor-pointer"
+              >
+                <FolderPlus className="w-4 h-4" strokeWidth={1.75} />
+              </button>
+
+              {/* View mode toggle button */}
+              <button
+                id="sidebar-links-toggle-btn"
+                type="button"
+                onClick={handleToggleViewMode}
+                title={viewMode === 'links' ? 'Повернутися до нотаток' : 'Усі збережені посилання'}
+                aria-label={viewMode === 'links' ? 'Повернутися до нотаток' : 'Усі збережені посилання'}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/80 transition-colors shrink-0 cursor-pointer"
+              >
+                {viewMode === 'links' ? (
+                  <FileText className="w-4 h-4 text-neutral-900" strokeWidth={1.75} />
+                ) : (
+                  <Link2 className="w-4 h-4 text-neutral-600" strokeWidth={1.75} />
+                )}
+              </button>
+
+              {/* New Note Button */}
+              <button
+                id="sidebar-new-note-btn"
+                type="button"
+                onClick={handleCreateNote}
+                title="Нова нотатка (Alt+N)"
+                aria-label="Нова нотатка"
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/80 transition-colors shrink-0 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" strokeWidth={1.75} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Center / Right: Formatting Toolbar (Contained strictly within editor space, scrollable if narrow) */}
+        <div className={`flex-1 min-w-0 flex items-center overflow-x-auto scrollbar-none px-2 ${!activeNote ? 'opacity-0 pointer-events-none' : ''}`}>
+          <div className="mx-auto flex items-center justify-center min-w-max">
+            <EditorToolbar
+              isSidebarCollapsed={isSidebarCollapsed}
+              onExecCommand={(cmd, val) => editorPaneRef.current?.execCommand(cmd, val)}
+              onFormatBlock={(tag) => editorPaneRef.current?.formatBlock(tag)}
+              onApplyFontFamily={(font) => editorPaneRef.current?.applyFontFamily(font)}
+              onApplyFontSize={(size) => editorPaneRef.current?.applyFontSize(size)}
+              onClearFormatting={() => editorPaneRef.current?.clearFormatting()}
+              onOpenLinkModal={() => setIsLinkModalOpen(true)}
+              onInsertImageFile={(file) => editorPaneRef.current?.insertImageFile(file)}
+              onInsertAnchor={() => editorPaneRef.current?.insertAnchor()}
+              onAutoPartitionAnchors={() => editorPaneRef.current?.autoPartitionAnchors()}
+              onInsertTable={(rows, cols) => editorPaneRef.current?.insertTable(rows, cols)}
+              onExport={(format) => editorPaneRef.current?.exportNote(format)}
+              textColor={textColor}
+              onChangeTextColor={(color) => {
+                setTextColor(color);
+                editorPaneRef.current?.changeTextColor(color);
+              }}
+              highlightColor={highlightColor}
+              onChangeHighlightColor={(color) => {
+                setHighlightColor(color);
+                editorPaneRef.current?.changeHighlightColor(color);
+              }}
+            />
+          </div>
+        </div>
+      </header>
+
+      {/* Main Body (Seamless Continuous Panels) */}
+      <div className="flex-1 flex min-h-0 w-full">
+        {/* Sidebar navigation */}
+        <Sidebar
+          ref={sidebarRef}
+          notes={notes}
+          activeId={activeId}
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          onSelectNote={handleSelectNote}
+          onCreateNote={handleCreateNote}
+          onCopyNote={handleCopyNote}
+          onTogglePin={handleTogglePin}
+          onToggleMarked={handleToggleMarked}
+          onDeleteNote={handleDeleteNote}
+          isCollapsed={isSidebarCollapsed}
+          viewMode={viewMode}
+          onToggleViewMode={handleToggleViewMode}
+          extractedLinks={extractedLinks}
+          onNavigateToNote={handleNavigateToNote}
+          onDeleteLink={handleDeleteLink}
+          folders={folders}
+          onAddFolder={handleAddFolder}
+          onToggleFolder={handleToggleFolder}
+          onRenameFolder={handleRenameFolder}
+          onDeleteFolder={handleDeleteFolder}
+          onMoveNoteToFolder={handleMoveNoteToFolder}
+          linkFolderMap={linkFolderMap}
+          onMoveLinkToFolder={handleMoveLinkToFolder}
+          onMoveFolderToFolder={handleMoveFolderToFolder}
+          onMarkFolderInteracted={handleMarkFolderInteracted}
+        />
+
+        {/* Main editor area */}
+        <EditorPane
+          ref={editorPaneRef}
+          note={activeNote}
+          targetAnchorId={targetAnchorId}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onUpdateNote={handleUpdateActiveNote}
+          onCreateNote={handleCreateNote}
+          onOpenLinkModal={() => setIsLinkModalOpen(true)}
+          textColor={textColor}
+          onChangeTextColor={setTextColor}
+          highlightColor={highlightColor}
+          onChangeHighlightColor={setHighlightColor}
+        />
+      </div>
 
       {/* Link Modal */}
       <LinkModal

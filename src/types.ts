@@ -2,7 +2,12 @@ export interface Folder {
   id: string;
   name: string;
   type: 'notes' | 'links';
+  parentId?: string | null;
   collapsed?: boolean;
+  autoCreated?: boolean;
+  sourceNoteId?: string;
+  sectionHeading?: string;
+  interacted?: boolean;
 }
 
 export interface Note {

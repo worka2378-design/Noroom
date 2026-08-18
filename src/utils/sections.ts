@@ -55,16 +55,46 @@ export function generateSectionTitleFromText(text: string): string {
 }
 
 /**
- * Build HTML string for a visual anchor block
+ * Build HTML string for a visual anchor badge - unused now since anchor icons with names
+ * live between the layers panel and editor block.
  */
 export function createAnchorElementHtml(anchorId: string, title: string): string {
-  return `<div class="note-anchor-block my-5 flex items-center gap-2.5 select-none" data-anchor-id="${anchorId}" id="${anchorId}" contenteditable="false"><div class="h-px bg-neutral-200/80 flex-1"></div><div class="flex items-center gap-1.5 text-xs text-neutral-400 group"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-neutral-400"><circle cx="12" cy="5" r="3"/><line x1="12" y1="22" x2="12" y2="8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/></svg><span class="anchor-label cursor-text text-neutral-600 hover:text-neutral-900 font-medium px-1.5 py-0.5 rounded outline-none focus:bg-neutral-100 focus:text-neutral-950" contenteditable="true" spellcheck="false">${title}</span><button type="button" class="anchor-delete-btn opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-red-600 transition-opacity p-0.5" title="Видалити якір"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div><div class="h-px bg-neutral-200/80 flex-1"></div></div>`;
+  return `<span class="note-anchor-marker" data-anchor-id="${anchorId}" id="${anchorId}" data-anchor-title="${title}"></span>`;
 }
 
 /**
- * Automatically analyzes note HTML and inserts anchor dividers (.note-anchor-block)
- * with meaningful section titles when the note is large or partitioned.
- * Threshold: > 60 words, or >= 2 paragraphs/headings.
+ * Strips embedded anchor icons, badges, and horizontal dividers from text content
+ * so the editor document contains only clean text, while preserving IDs for navigation.
+ */
+export function cleanLegacyAnchorDividers(html: string): string {
+  if (!html) return '';
+  const temp = document.createElement('div');
+  temp.innerHTML = html;
+
+  // Remove divider lines
+  temp.querySelectorAll('div.h-px, hr.anchor-divider').forEach((el) => el.remove());
+
+  // Remove all embedded .note-anchor-block icons and labels from text flow
+  temp.querySelectorAll('.note-anchor-block').forEach((anchorEl) => {
+    const anchorId = anchorEl.getAttribute('data-anchor-id') || anchorEl.getAttribute('id');
+    const label = anchorEl.querySelector('.anchor-label')?.textContent?.trim();
+    const parent = anchorEl.parentElement;
+    
+    if (parent) {
+      if (anchorId && !parent.getAttribute('data-anchor-id') && !parent.getAttribute('id')) {
+        parent.setAttribute('data-anchor-id', anchorId);
+        if (label) parent.setAttribute('data-anchor-title', label);
+      }
+    }
+    anchorEl.remove();
+  });
+
+  return temp.innerHTML;
+}
+
+/**
+ * Automatically assigns section IDs to headings and major paragraphs for anchor navigation
+ * without cluttering the text with inline graphic icons.
  */
 export function autoPartitionNoteWithAnchors(
   content: string,
@@ -77,92 +107,35 @@ export function autoPartitionNoteWithAnchors(
   const temp = document.createElement('div');
   temp.innerHTML = content;
 
-  // Check if explicit anchors already exist
-  const existingAnchors = temp.querySelectorAll('.note-anchor-block');
-  if (existingAnchors.length > 0 && !options.force) {
-    return { updatedHtml: content, addedCount: 0 };
-  }
-
-  const plainText = htmlToPlainText(content);
-  const wordCount = plainText.split(/\s+/).filter(Boolean).length;
-  const minWords = options.minWords ?? 50;
-
-  // If text is too short and not forced, don't partition
-  if (wordCount < minWords && !options.force) {
-    return { updatedHtml: content, addedCount: 0 };
-  }
-
   let addedCount = 0;
 
-  // 1. If note contains Headings (h1, h2, h3), place anchors before them
+  // 1. Tag headings with anchor IDs
   const headings = Array.from(temp.querySelectorAll('h1, h2, h3'));
-  if (headings.length >= 1) {
-    headings.forEach((heading, idx) => {
-      const prevEl = heading.previousElementSibling;
-      if (prevEl && prevEl.classList.contains('note-anchor-block')) return;
-
-      const headingText = (heading.textContent || '').trim();
-      const title = headingText || `Розділ ${idx + 1}`;
+  headings.forEach((heading, idx) => {
+    if (!heading.id && !heading.getAttribute('data-anchor-id')) {
       const anchorId = 'anchor-' + Math.random().toString(36).substring(2, 9);
-      
-      const anchorDiv = document.createElement('div');
-      anchorDiv.innerHTML = createAnchorElementHtml(anchorId, title);
-      const anchorNode = anchorDiv.firstElementChild;
-      if (anchorNode) {
-        heading.parentNode?.insertBefore(anchorNode, heading);
-        addedCount++;
-      }
-    });
-
-    if (addedCount > 0) {
-      return { updatedHtml: temp.innerHTML, addedCount };
+      heading.id = anchorId;
+      heading.setAttribute('data-anchor-id', anchorId);
+      addedCount++;
     }
-  }
+  });
 
-  // 2. Otherwise partition by paragraphs / major content blocks
-  // Collect direct children or block elements
+  // 2. Partition by paragraphs if longer
   const blocks = Array.from(temp.children).filter((el) => {
-    if (el.classList.contains('note-anchor-block')) return false;
     const text = (el.textContent || '').trim();
     return text.length > 0;
   });
 
-  if (blocks.length >= 2) {
-    // Determine section spacing (every 2-3 paragraphs depending on total length)
+  if (blocks.length >= 3) {
     const step = blocks.length <= 4 ? 2 : Math.max(2, Math.floor(blocks.length / 3));
-
-    for (let i = 0; i < blocks.length; i += step) {
+    for (let i = step; i < blocks.length; i += step) {
       const block = blocks[i] as HTMLElement;
-      // If previous sibling is already an anchor, skip
-      if (block.previousElementSibling?.classList.contains('note-anchor-block')) {
-        continue;
-      }
-
-      // Extract section text from this block and next few blocks
-      const chunkBlocks = blocks.slice(i, i + step);
-      const chunkText = chunkBlocks.map((b) => b.textContent || '').join(' ').trim();
-      const title = generateSectionTitleFromText(chunkText);
-      const anchorId = 'anchor-' + Math.random().toString(36).substring(2, 9);
-
-      const anchorDiv = document.createElement('div');
-      anchorDiv.innerHTML = createAnchorElementHtml(anchorId, title);
-      const anchorNode = anchorDiv.firstElementChild;
-      if (anchorNode) {
-        block.parentNode?.insertBefore(anchorNode, block);
+      if (!block.id && !block.getAttribute('data-anchor-id')) {
+        const anchorId = 'anchor-' + Math.random().toString(36).substring(2, 9);
+        block.id = anchorId;
+        block.setAttribute('data-anchor-id', anchorId);
         addedCount++;
       }
-    }
-  } else if (blocks.length === 1 && wordCount >= minWords) {
-    // Single large block (e.g. big div or p) -> split into paragraphs by <br> or double newlines if possible
-    const block = blocks[0] as HTMLElement;
-    const title = generateSectionTitleFromText(plainText);
-    const anchorId = 'anchor-' + Math.random().toString(36).substring(2, 9);
-    const anchorDiv = document.createElement('div');
-    anchorDiv.innerHTML = createAnchorElementHtml(anchorId, title);
-    const anchorNode = anchorDiv.firstElementChild;
-    if (anchorNode) {
-      block.parentNode?.insertBefore(anchorNode, block);
-      addedCount++;
     }
   }
 
@@ -174,149 +147,85 @@ export function autoPartitionNoteWithAnchors(
 
 /**
  * Parse HTML content of a note into structured sections/anchors.
- * Handles:
- * 1. Explicit anchors (.note-anchor-block)
- * 2. Headings (h1, h2, h3)
- * 3. Auto-partitioned sections for large notes (> 200 words or > 1000 characters)
+ * Only extracts explicit note title, headings (h1..h6), and explicit anchors.
  */
 export function extractNoteSections(content: string, noteTitle = ''): NoteSection[] {
-  if (!content || !content.trim()) return [];
+  const sections: NoteSection[] = [];
+  const seenIds = new Set<string>();
+  const seenTitles = new Set<string>();
+
+  const cleanNoteTitle = (noteTitle || 'Початок нотатки').trim();
+  const normalizedNoteTitle = cleanNoteTitle.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+
+  // 1. Root / Top of the note
+  const fullText = htmlToPlainText(content);
+  sections.push({
+    id: 'section-root',
+    title: cleanNoteTitle,
+    snippet: makeSnippet(fullText),
+    fullText,
+    isExplicitAnchor: true,
+    type: 'anchor',
+  });
+  seenIds.add('section-root');
+  if (normalizedNoteTitle) {
+    seenTitles.add(normalizedNoteTitle);
+  }
+
+  if (!content || !content.trim()) return sections;
 
   const temp = document.createElement('div');
   temp.innerHTML = content;
 
-  const sections: NoteSection[] = [];
-  
-  // Find all explicit anchor blocks
-  const anchorElements = Array.from(temp.querySelectorAll('.note-anchor-block'));
-  
-  // Find all heading elements
-  const headingElements = Array.from(temp.querySelectorAll('h1, h2, h3'));
+  // Single unified in-order traversal of headings and explicit anchor markers
+  const candidateElements = Array.from(
+    temp.querySelectorAll('h1, h2, h3, h4, h5, h6, [data-anchor-id], [data-anchor-title], .note-anchor-marker')
+  ) as HTMLElement[];
 
-  const totalWords = htmlToPlainText(content).split(/\s+/).filter(Boolean).length;
-  const isLargeNote = totalWords >= 150 || content.length > 800;
+  let headingIdx = 0;
 
-  // Case 1: If there are explicit anchors or headings
-  if (anchorElements.length > 0 || headingElements.length > 0) {
-    // Collect all marker nodes in DOM order
-    const markers: { node: HTMLElement; type: 'anchor' | 'heading'; id: string; title: string }[] = [];
-
-    temp.querySelectorAll('.note-anchor-block, h1, h2, h3').forEach((el, index) => {
-      const htmlEl = el as HTMLElement;
-      if (htmlEl.classList.contains('note-anchor-block')) {
-        const id = htmlEl.getAttribute('data-anchor-id') || htmlEl.getAttribute('id') || `anchor-${index}`;
-        const labelEl = htmlEl.querySelector('.anchor-label');
-        const title = (labelEl?.textContent || '').trim() || 'Якір';
-        markers.push({ node: htmlEl, type: 'anchor', id, title });
-      } else {
-        const tag = htmlEl.tagName.toLowerCase();
-        const id = htmlEl.getAttribute('id') || `heading-${tag}-${index}`;
-        const title = (htmlEl.textContent || '').trim() || 'Розділ';
-        if (title) {
-          markers.push({ node: htmlEl, type: 'heading', id, title });
-        }
-      }
-    });
-
-    if (markers.length > 0) {
-      // Content before first marker
-      const allChildren = Array.from(temp.children);
-      const firstMarkerIndex = allChildren.findIndex((child) =>
-        markers.some((m) => m.node === child || child.contains(m.node))
-      );
-
-      if (firstMarkerIndex > 0) {
-        const introNodes = allChildren.slice(0, firstMarkerIndex);
-        const introText = introNodes.map((n) => n.textContent || '').join(' ').trim();
-        if (introText) {
-          sections.push({
-            id: 'section-intro',
-            title: noteTitle ? `Вступ: ${noteTitle}` : 'Вступ',
-            snippet: makeSnippet(introText),
-            fullText: introText,
-            isExplicitAnchor: false,
-            type: 'auto',
-          });
-        }
-      }
-
-      // Collect text between markers
-      for (let i = 0; i < markers.length; i++) {
-        const currentMarker = markers[i];
-        const nextMarker = markers[i + 1];
-
-        // Gather siblings until next marker
-        let sectionText = '';
-        let curr: Node | null = currentMarker.node.nextSibling;
-
-        while (curr) {
-          if (nextMarker && (curr === nextMarker.node || (curr.nodeType === 1 && (curr as HTMLElement).contains(nextMarker.node)))) {
-            break;
-          }
-          sectionText += ' ' + (curr.textContent || '');
-          curr = curr.nextSibling;
-        }
-
-        const cleanSectionText = sectionText.replace(/\s+/g, ' ').trim();
-
-        sections.push({
-          id: currentMarker.id,
-          title: currentMarker.title,
-          snippet: makeSnippet(cleanSectionText || currentMarker.title),
-          fullText: `${currentMarker.title} ${cleanSectionText}`.trim(),
-          isExplicitAnchor: currentMarker.type === 'anchor',
-          type: currentMarker.type,
-        });
-      }
-
-      return sections;
+  for (const el of candidateElements) {
+    // Avoid processing elements nested inside another candidate element
+    if (candidateElements.some((parent) => parent !== el && parent.contains(el))) {
+      continue;
     }
+
+    const isHeading = /^H[1-6]$/i.test(el.tagName);
+    const customTitle = el.getAttribute('data-anchor-title');
+    const rawText = (el.textContent || '').trim();
+    const title = (customTitle || (isHeading ? rawText : generateSectionTitleFromText(rawText))).trim();
+
+    if (!title) continue;
+
+    const normalizedTitle = title.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    // If duplicate title of an already added section or note title, skip
+    if (!normalizedTitle || seenTitles.has(normalizedTitle)) {
+      continue;
+    }
+
+    let anchorId = el.getAttribute('data-anchor-id') || el.id;
+    if (!anchorId) {
+      anchorId = isHeading ? `heading-${headingIdx++}` : `anchor-${Math.random().toString(36).substring(2, 9)}`;
+    }
+
+    if (seenIds.has(anchorId)) {
+      anchorId = `${anchorId}-${Math.random().toString(36).substring(2, 6)}`;
+    }
+
+    seenIds.add(anchorId);
+    seenTitles.add(normalizedTitle);
+
+    sections.push({
+      id: anchorId,
+      title,
+      snippet: makeSnippet(rawText || title),
+      fullText: rawText || title,
+      isExplicitAnchor: !isHeading || Boolean(el.getAttribute('data-anchor-id')),
+      type: isHeading ? 'heading' : 'anchor',
+    });
   }
 
-  // Case 2: Large note with no explicit markers -> Auto-partition by paragraphs/blocks
-  if (isLargeNote) {
-    const blocks = Array.from(temp.children).filter((el) => {
-      const text = (el.textContent || '').trim();
-      return text.length > 10;
-    });
-
-    if (blocks.length >= 2) {
-      // Group blocks into logical sections (e.g. 2-3 paragraphs each)
-      const chunkSize = Math.max(1, Math.ceil(blocks.length / 4));
-      
-      for (let i = 0; i < blocks.length; i += chunkSize) {
-        const chunkBlocks = blocks.slice(i, i + chunkSize);
-        const chunkText = chunkBlocks.map((b) => b.textContent || '').join(' ').trim();
-        const autoTitle = generateSectionTitleFromText(chunkText);
-        const firstBlock = chunkBlocks[0] as HTMLElement;
-        const autoId = firstBlock.getAttribute('id') || `auto-section-${i}`;
-
-        sections.push({
-          id: autoId,
-          title: autoTitle,
-          snippet: makeSnippet(chunkText),
-          fullText: chunkText,
-          isExplicitAnchor: false,
-          type: 'auto',
-        });
-      }
-
-      return sections;
-    }
-  }
-
-  // Single default section for regular small notes
-  const fullText = htmlToPlainText(content);
-  return [
-    {
-      id: 'section-root',
-      title: noteTitle || 'Нотатка',
-      snippet: makeSnippet(fullText),
-      fullText,
-      isExplicitAnchor: false,
-      type: 'auto',
-    },
-  ];
+  return sections;
 }
 
 /**

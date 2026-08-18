@@ -6,6 +6,7 @@ export interface ExtractedLink {
   faviconUrl: string;
   noteId: string;
   noteTitle: string;
+  heading?: string | null;
 }
 
 export function extractDomain(urlStr: string): string {
@@ -50,77 +51,115 @@ export function formatUrlTitle(urlStr: string, customText?: string): string {
 }
 
 /**
- * Parses all links found inside an array of Notes
+ * Parses all links found inside a single Note with heading/section associations
  */
-export function extractAllLinksFromNotes(notes: { id: string; title: string; content: string }[]): ExtractedLink[] {
+export function extractLinksFromNote(note: { id: string; title: string; content: string }): ExtractedLink[] {
+  if (!note.content || !note.content.trim()) return [];
+
+  const temp = document.createElement('div');
+  temp.innerHTML = note.content;
+
   const links: ExtractedLink[] = [];
-  const seenSet = new Set<string>();
+  const seenUrlsInNote = new Set<string>();
+  let currentHeading: string | null = null;
+  let linkCounter = 0;
 
-  notes.forEach((note) => {
-    if (!note.content) return;
-    
-    // 1. Match HTML anchor tags: <a ... href="..." ...>...</a>
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = note.content;
-    const anchors = tempDiv.querySelectorAll('a');
+  function isHeadingElement(el: HTMLElement): boolean {
+    const tag = el.tagName.toLowerCase();
+    if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)) return true;
+    if (el.classList.contains('note-anchor-block') || el.classList.contains('anchor-block')) return true;
+    if ((tag === 'p' || tag === 'div') && el.children.length === 1) {
+      const childTag = el.children[0].tagName.toLowerCase();
+      if (['b', 'strong', 'u'].includes(childTag) && el.textContent?.trim() && !el.querySelector('a')) {
+        return true;
+      }
+    }
+    return false;
+  }
 
-    anchors.forEach((a, index) => {
-      const href = a.getAttribute('href');
-      if (href && (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('www.'))) {
-        const fullUrl = href.startsWith('www.') ? `https://${href}` : href;
-        const textContent = a.textContent?.trim() || '';
-        const domain = extractDomain(fullUrl);
-        const displayTitle = formatUrlTitle(fullUrl, textContent);
-        const linkKey = `${note.id}-${fullUrl}-${index}`;
+  function getHeadingText(el: HTMLElement): string {
+    if (el.classList.contains('note-anchor-block')) {
+      const labelEl = el.querySelector('.anchor-label');
+      return (labelEl?.textContent || el.textContent || '').trim();
+    }
+    return (el.textContent || '').trim();
+  }
 
-        if (!seenSet.has(linkKey)) {
-          seenSet.add(linkKey);
+  function walk(node: Node) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      const tag = el.tagName.toLowerCase();
+
+      if (isHeadingElement(el)) {
+        const headingText = getHeadingText(el);
+        if (headingText) {
+          currentHeading = headingText;
+        }
+        return;
+      }
+
+      if (tag === 'a') {
+        const href = el.getAttribute('href') || el.getAttribute('data-url');
+        if (href && (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('www.'))) {
+          const fullUrl = href.startsWith('www.') ? `https://${href}` : href;
+          const textContent = el.textContent?.trim() || '';
+          const domain = extractDomain(fullUrl);
+          const displayTitle = formatUrlTitle(fullUrl, textContent);
+          const linkId = `${note.id}-${linkCounter++}-${encodeURIComponent(fullUrl)}`;
+
+          seenUrlsInNote.add(fullUrl);
           links.push({
-            id: linkKey,
+            id: linkId,
             url: fullUrl,
             displayTitle,
             domain,
             faviconUrl: getFaviconUrl(domain),
             noteId: note.id,
             noteTitle: note.title.trim() || 'Без назви',
+            heading: currentHeading,
+          });
+        }
+        return;
+      }
+    } else if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent || '';
+      const rawUrlRegex = /(https?:\/\/[^\s<>"'`]+|www\.[^\s<>"'`]+)/gi;
+      let match: RegExpExecArray | null;
+      while ((match = rawUrlRegex.exec(text)) !== null) {
+        let rawUrl = match[0].replace(/[.,;:!?)]+$/, '');
+        const fullUrl = rawUrl.startsWith('www.') ? `https://${rawUrl}` : rawUrl;
+        if (!seenUrlsInNote.has(fullUrl)) {
+          seenUrlsInNote.add(fullUrl);
+          const domain = extractDomain(fullUrl);
+          const displayTitle = formatUrlTitle(fullUrl);
+          const linkId = `${note.id}-${linkCounter++}-${encodeURIComponent(fullUrl)}`;
+
+          links.push({
+            id: linkId,
+            url: fullUrl,
+            displayTitle,
+            domain,
+            faviconUrl: getFaviconUrl(domain),
+            noteId: note.id,
+            noteTitle: note.title.trim() || 'Без назви',
+            heading: currentHeading,
           });
         }
       }
-    });
-
-    // 2. Also match raw text URLs that might not yet be wrapped in <a>
-    const rawUrlRegex = /(https?:\/\/[^\s<>"'`]+|www\.[^\s<>"'`]+)/gi;
-    const plainText = tempDiv.textContent || '';
-    let match: RegExpExecArray | null;
-    let rawIndex = 0;
-
-    while ((match = rawUrlRegex.exec(plainText)) !== null) {
-      let rawUrl = match[0];
-      // remove trailing punctuation if accidentally captured
-      rawUrl = rawUrl.replace(/[.,;:!?)]+$/, '');
-      const fullUrl = rawUrl.startsWith('www.') ? `https://${rawUrl}` : rawUrl;
-      const domain = extractDomain(fullUrl);
-      const displayTitle = formatUrlTitle(fullUrl);
-      const linkKey = `${note.id}-${fullUrl}-raw-${rawIndex++}`;
-
-      // Only add if not already extracted from anchors for this note
-      const exists = links.some((l) => l.noteId === note.id && l.url === fullUrl);
-      if (!exists && !seenSet.has(linkKey)) {
-        seenSet.add(linkKey);
-        links.push({
-          id: linkKey,
-          url: fullUrl,
-          displayTitle,
-          domain,
-          faviconUrl: getFaviconUrl(domain),
-          noteId: note.id,
-          noteTitle: note.title.trim() || 'Без назви',
-        });
-      }
     }
-  });
 
+    node.childNodes.forEach((child) => walk(child));
+  }
+
+  walk(temp);
   return links;
+}
+
+/**
+ * Parses all links found inside an array of Notes
+ */
+export function extractAllLinksFromNotes(notes: { id: string; title: string; content: string }[]): ExtractedLink[] {
+  return notes.flatMap((note) => extractLinksFromNote(note));
 }
 
 /**
