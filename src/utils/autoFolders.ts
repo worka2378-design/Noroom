@@ -58,7 +58,7 @@ export function syncAutoFolders(
 
       const mainFolder: Folder = {
         id: mainFolderId,
-        name: noteTitle,
+        name: prevMain?.interacted && prevMain?.name ? prevMain.name : noteTitle,
         type: 'links',
         parentId: null,
         collapsed: prevMain?.collapsed ?? false,
@@ -88,7 +88,7 @@ export function syncAutoFolders(
 
           const subFolder: Folder = {
             id: subFolderId,
-            name: hName,
+            name: prevSub?.interacted && prevSub?.name ? prevSub.name : hName,
             type: 'links',
             parentId: mainFolderId,
             collapsed: prevSub?.collapsed ?? false,

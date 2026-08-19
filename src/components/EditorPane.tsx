@@ -1,5 +1,5 @@
-import React, { useRef, useEffect, useState, useMemo, useImperativeHandle, forwardRef } from 'react';
-import { FileText, Plus } from 'lucide-react';
+import React, { useRef, useEffect, useState, useMemo, useCallback, useImperativeHandle, forwardRef } from 'react';
+import { FileText, Plus, Anchor, Check } from 'lucide-react';
 import { Note, TextFormatCommand, BlockFormatCommand } from '../types';
 import { TableEditorManager } from './TableEditorManager';
 import { AnchorVerticalRail } from './AnchorNavigator';
@@ -52,6 +52,105 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
 
   // Active section tracker for vertical rail dots
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+
+  // Dynamic Anchor indicator for headings on click / cursor focus
+  const [activeHeadingInfo, setActiveHeadingInfo] = useState<{
+    element: HTMLElement;
+    top: number;
+    anchorId: string;
+    copied: boolean;
+  } | null>(null);
+
+  const updateActiveHeading = useCallback(() => {
+    const editor = contentRef.current;
+    if (!editor) {
+      setActiveHeadingInfo(null);
+      return;
+    }
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      setActiveHeadingInfo(null);
+      return;
+    }
+
+    const node = selection.anchorNode;
+    if (!node || !editor.contains(node)) {
+      setActiveHeadingInfo(null);
+      return;
+    }
+
+    // Traverse upwards from anchorNode to check if inside H1..H6
+    let curr: Node | null = node;
+    let headingEl: HTMLElement | null = null;
+
+    while (curr && curr !== editor) {
+      if (curr.nodeType === Node.ELEMENT_NODE) {
+        const el = curr as HTMLElement;
+        if (/^H[1-6]$/i.test(el.tagName)) {
+          headingEl = el;
+          break;
+        }
+      }
+      curr = curr.parentNode;
+    }
+
+    if (headingEl && editor.contains(headingEl)) {
+      let aId = headingEl.getAttribute('data-anchor-id') || headingEl.id;
+      if (!aId) {
+        aId = 'anchor-' + Math.random().toString(36).substring(2, 9);
+        headingEl.id = aId;
+        headingEl.setAttribute('data-anchor-id', aId);
+      }
+
+      const container = editor.parentElement;
+      if (container) {
+        const hRect = headingEl.getBoundingClientRect();
+        const cRect = container.getBoundingClientRect();
+        const relativeTop = hRect.top - cRect.top + hRect.height / 2;
+
+        setActiveHeadingInfo((prev) => ({
+          element: headingEl!,
+          top: relativeTop,
+          anchorId: aId,
+          copied: prev?.element === headingEl ? prev.copied : false,
+        }));
+      }
+    } else {
+      setActiveHeadingInfo(null);
+    }
+  }, []);
+
+  const handleCopyAnchorFromHeading = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!activeHeadingInfo) return;
+
+    setActiveSectionId(activeHeadingInfo.anchorId);
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(`#${activeHeadingInfo.anchorId}`).catch(() => {});
+    }
+
+    setActiveHeadingInfo((prev) => (prev ? { ...prev, copied: true } : null));
+    setTimeout(() => {
+      setActiveHeadingInfo((prev) => (prev ? { ...prev, copied: false } : null));
+    }, 1500);
+  };
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      updateActiveHeading();
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    window.addEventListener('resize', updateActiveHeading);
+
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      window.removeEventListener('resize', updateActiveHeading);
+    };
+  }, [updateActiveHeading]);
 
   // Extracted sections for active note
   const sections = useMemo(() => {
@@ -206,6 +305,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
     }
 
     setActiveSectionId(currentActiveId);
+    updateActiveHeading();
   };
 
   // Sync content when active note changes
@@ -988,6 +1088,29 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
             />
           </div>
 
+          {/* Dynamic Section Anchor Indicator on Heading Focus/Click */}
+          {activeHeadingInfo && (
+            <div
+              id="active-heading-anchor-badge"
+              style={{ top: `${activeHeadingInfo.top}px` }}
+              className="absolute -left-7 sm:-left-8 -translate-y-1/2 flex items-center z-20 transition-all duration-150"
+            >
+              <button
+                type="button"
+                onClick={handleCopyAnchorFromHeading}
+                className="w-5 h-5 sm:w-6 sm:h-6 rounded-md flex items-center justify-center text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100 transition-colors shadow-2xs border border-neutral-200/80 bg-white cursor-pointer group"
+                title={activeHeadingInfo.copied ? 'Якір скопійовано!' : 'Якір розділу'}
+                aria-label="Якір розділу"
+              >
+                {activeHeadingInfo.copied ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-600" strokeWidth={2} />
+                ) : (
+                  <Anchor className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-neutral-400 group-hover:text-neutral-900" strokeWidth={1.75} />
+                )}
+              </button>
+            </div>
+          )}
+
           {/* Note Rich Content Editable */}
           <div
             ref={contentRef}
@@ -997,9 +1120,13 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
             onInput={handleContentInput}
             onBlur={handleContentBlur}
             onKeyDown={handleKeyDown}
+            onKeyUp={updateActiveHeading}
             onPaste={handlePaste}
             onCut={handleCut}
-            onClick={handleContentClick}
+            onClick={(e) => {
+              handleContentClick(e);
+              setTimeout(updateActiveHeading, 10);
+            }}
             data-placeholder="Почніть писати…"
             className="editor-typography outline-none text-neutral-800 text-base leading-relaxed min-h-[400px]"
           />
