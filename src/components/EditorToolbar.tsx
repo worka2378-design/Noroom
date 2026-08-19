@@ -275,12 +275,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/70'
     }`;
 
-  const Divider = () => <div className="w-px h-4 bg-neutral-200/80 mx-0.5 sm:mx-1 shrink-0 select-none" />;
-
   return (
     <div
       id="editor-toolbar"
-      className="flex items-center gap-0.5 sm:gap-1 flex-nowrap select-none shrink-0"
+      className="flex items-center gap-1 sm:gap-1.5 flex-nowrap select-none shrink-0"
     >
       {/* 1. Typography: Font Family & Font Size */}
       <div className="flex items-center gap-0.5 shrink-0">
@@ -310,8 +308,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           </span>
         </button>
       </div>
-
-      <Divider />
 
       {/* 2. Basic Text Formatting */}
       <div className="flex items-center gap-0.5 shrink-0">
@@ -373,8 +369,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         </button>
       </div>
 
-      <Divider />
-
       {/* 3. Headings and Paragraphs */}
       <div className="flex items-center gap-0.5 shrink-0">
         <button
@@ -418,8 +412,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           <Pilcrow className="w-4 h-4" strokeWidth={1.75} />
         </button>
       </div>
-
-      <Divider />
 
       {/* 4. Lists, Quote, Code */}
       <div className="flex items-center gap-0.5 shrink-0">
@@ -465,8 +457,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         </button>
       </div>
 
-      <Divider />
-
       {/* 5. Alignment */}
       <div className="flex items-center gap-0.5 shrink-0">
         <button
@@ -500,8 +490,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           <AlignRight className="w-4 h-4" strokeWidth={1.75} />
         </button>
       </div>
-
-      <Divider />
 
       {/* 6. Links, Media & Table */}
       <div className="flex items-center gap-0.5 shrink-0">
@@ -562,8 +550,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         )}
       </div>
 
-      <Divider />
-
       {/* 7. Colors & Highlight */}
       <div className="flex items-center gap-0.5 shrink-0">
         <label
@@ -592,8 +578,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         </label>
       </div>
 
-      <Divider />
-
       {/* 8. Undo & Redo */}
       <div className="flex items-center gap-0.5 shrink-0">
         <button
@@ -617,8 +601,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           <Redo className="w-4 h-4" strokeWidth={1.75} />
         </button>
       </div>
-
-      <Divider />
 
       {/* 9. Export dropdown */}
       <div className="shrink-0 relative">
