@@ -1,17 +1,19 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback, useImperativeHandle, forwardRef } from 'react';
-import { FileText, Plus, Anchor, Check } from 'lucide-react';
+import { FileText, Plus, Anchor, Check, Info } from 'lucide-react';
 import { Note, TextFormatCommand, BlockFormatCommand } from '../types';
 import { TableEditorManager } from './TableEditorManager';
 import { AnchorVerticalRail } from './AnchorNavigator';
 import { formatNoteDate, countWords, countCharacters } from '../utils/storage';
 import { createGraphicLinkHtml, autoConvertUrlsToRichLinks } from '../utils/links';
 import { autoPartitionNoteWithAnchors, cleanLegacyAnchorDividers, extractNoteSections } from '../utils/sections';
+import { FloatingScrollbar } from './FloatingScrollbar';
 
 export interface EditorPaneHandle {
   execCommand: (command: TextFormatCommand, value?: string) => void;
   formatBlock: (tag: BlockFormatCommand) => void;
   applyFontFamily: (fontFamily: string) => void;
   applyFontSize: (fontSize: string) => void;
+  applyLineHeight: (lineHeight: string) => void;
   clearFormatting: () => void;
   insertImageFile: (file: File) => void;
   insertAnchor: () => void;
@@ -33,6 +35,8 @@ export interface EditorPaneProps {
   highlightColor: string;
   onChangeHighlightColor: (color: string) => void;
   isSidebarCollapsed?: boolean;
+  onTyping?: () => void;
+  onSelectionChange?: (hasSelection: boolean) => void;
 }
 
 export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
@@ -46,9 +50,12 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
   highlightColor,
   onChangeHighlightColor,
   isSidebarCollapsed = false,
+  onTyping,
+  onSelectionChange,
 }, ref) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const documentFrameRef = useRef<HTMLDivElement>(null);
 
   // Active section tracker for vertical rail dots
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
@@ -60,6 +67,28 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
     anchorId: string;
     copied: boolean;
   } | null>(null);
+
+  // Toggleable Word & Character Statistics Popover
+  const [showStats, setShowStats] = useState(false);
+  const statsContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-collapse stats popover when clicked outside
+  useEffect(() => {
+    if (!showStats) return;
+
+    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      if (statsContainerRef.current && !statsContainerRef.current.contains(e.target as Node)) {
+        setShowStats(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, [showStats]);
 
   const updateActiveHeading = useCallback(() => {
     const editor = contentRef.current;
@@ -141,6 +170,17 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
   useEffect(() => {
     const handleSelectionChange = () => {
       updateActiveHeading();
+
+      // Check if user has selected text in editor
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.toString().trim().length > 0) {
+        const node = sel.anchorNode;
+        if (node && contentRef.current && contentRef.current.contains(node)) {
+          onSelectionChange?.(true);
+          return;
+        }
+      }
+      onSelectionChange?.(false);
     };
 
     document.addEventListener('selectionchange', handleSelectionChange);
@@ -150,7 +190,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
       document.removeEventListener('selectionchange', handleSelectionChange);
       window.removeEventListener('resize', updateActiveHeading);
     };
-  }, [updateActiveHeading]);
+  }, [updateActiveHeading, onSelectionChange]);
 
   // Extracted sections for active note
   const sections = useMemo(() => {
@@ -430,10 +470,12 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
   }, []);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onTyping?.();
     onUpdateNote({ title: e.target.value });
   };
 
   const handleContentInput = () => {
+    onTyping?.();
     if (contentRef.current) {
       onUpdateNote({ content: contentRef.current.innerHTML });
     }
@@ -648,6 +690,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    onTyping?.();
+
     // Clear formatting shortcut (Ctrl+\ or Ctrl+Shift+X or Meta+\)
     if ((e.ctrlKey || e.metaKey) && (e.key === '\\' || (e.shiftKey && (e.key === 'X' || e.key === 'x')))) {
       e.preventDefault();
@@ -915,6 +959,49 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
     }
   };
 
+  const handleApplyLineHeight = (lineHeight: string) => {
+    const editor = contentRef.current;
+    if (!editor) return;
+
+    editor.focus();
+    const selection = window.getSelection();
+
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const blocks = Array.from(
+        editor.querySelectorAll('p, h1, h2, h3, h4, h5, h6, blockquote, li, pre, div.note-anchor-block')
+      ) as HTMLElement[];
+
+      let applied = false;
+      for (const block of blocks) {
+        if (range.intersectsNode(block) || selection.containsNode(block, true)) {
+          block.style.lineHeight = lineHeight;
+          applied = true;
+        }
+      }
+
+      if (!applied) {
+        let node: Node | null = selection.anchorNode;
+        if (node && editor.contains(node)) {
+          if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
+          const block = (node as HTMLElement | null)?.closest('p, h1, h2, h3, h4, h5, h6, blockquote, li, pre, div') as HTMLElement | null;
+          if (block && editor.contains(block) && block !== editor) {
+            block.style.lineHeight = lineHeight;
+            applied = true;
+          }
+        }
+      }
+
+      if (!applied) {
+        editor.style.lineHeight = lineHeight;
+      }
+    } else {
+      editor.style.lineHeight = lineHeight;
+    }
+
+    handleContentInput();
+  };
+
   const handleFormatBlock = (tag: BlockFormatCommand) => {
     if (contentRef.current) {
       contentRef.current.focus();
@@ -1014,6 +1101,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
     formatBlock: handleFormatBlock,
     applyFontFamily: handleApplyFontFamily,
     applyFontSize: handleApplyFontSize,
+    applyLineHeight: handleApplyLineHeight,
     clearFormatting: handleClearFormatting,
     insertImageFile: handleInsertImageFile,
     insertAnchor: handleInsertAnchor,
@@ -1062,11 +1150,23 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
 
   return (
     <main id="editor-main-pane" className="flex-1 flex flex-col min-w-0 bg-white relative">
+      {/* Floating minimal scrollbar in anchor dot style (when note does not have multiple sections) */}
+      {sections.length <= 1 && (
+        <FloatingScrollbar
+          containerRef={documentFrameRef}
+          rightOffsetClass="right-3 sm:right-6"
+          dotSizeClass="w-1.5 h-1.5"
+          topPadding={68}
+          bottomPadding={32}
+        />
+      )}
+
       {/* Document Workspace (Scrolls under the seamless translucent header) */}
       <div
+        ref={documentFrameRef}
         id="editor-document-frame"
         onScroll={handleDocumentScroll}
-        className="flex-1 overflow-y-auto px-6 sm:px-12 md:px-16 pt-16 sm:pt-20 pb-24"
+        className="flex-1 overflow-y-auto scrollbar-none px-6 sm:px-12 md:px-16 pt-16 sm:pt-20 pb-24"
       >
         <div className="max-w-3xl mx-auto relative">
           {/* Interactive Table Editor Overlay (Word-like resizing, +/- rows/cols, Word copy) */}
@@ -1083,6 +1183,8 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
               type="text"
               value={note.title}
               onChange={handleTitleChange}
+              onFocus={() => onTyping?.()}
+              onKeyDown={() => onTyping?.()}
               placeholder="Назва нотатки"
               className="flex-1 text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight text-neutral-900 placeholder:text-neutral-300 bg-transparent border-none outline-none"
             />
@@ -1117,6 +1219,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
             id="editor-content-area"
             contentEditable
             suppressContentEditableWarning
+            onFocus={() => onTyping?.()}
             onInput={handleContentInput}
             onBlur={handleContentBlur}
             onKeyDown={handleKeyDown}
@@ -1140,14 +1243,38 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
         onNavigateToSection={scrollToSection}
       />
 
-      {/* Floating Status Bar */}
-      <footer id="editor-status-bar" className="fixed bottom-4 right-6 text-[11px] text-neutral-500 font-medium flex items-center gap-2 pointer-events-none select-none bg-white/40 backdrop-blur-md border border-neutral-200/40 shadow-xs px-3 py-1 rounded-full">
-        <span>{words} слів</span>
-        <span>·</span>
-        <span>{chars} симв.</span>
-        <span>·</span>
-        <span>збережено {formatNoteDate(note.updated)}</span>
-      </footer>
+      {/* Floating Document Statistics Icon & Popover */}
+      <div
+        ref={statsContainerRef}
+        id="editor-stats-container"
+        className="fixed bottom-4 right-6 z-20 flex items-center gap-2 select-none"
+      >
+        {showStats && (
+          <div
+            id="editor-stats-details"
+            className="animate-in fade-in slide-in-from-right-2 duration-150 flex items-center gap-2 text-[11px] text-neutral-600 font-medium bg-white/85 backdrop-blur-md border border-neutral-200/80 shadow-xs px-3 py-1.5 rounded-full"
+          >
+            <span>{words} слів</span>
+            <span className="text-neutral-300">·</span>
+            <span>{chars} симв.</span>
+            <span className="text-neutral-300">·</span>
+            <span className="text-neutral-500">збережено {formatNoteDate(note.updated)}</span>
+          </div>
+        )}
+
+        <button
+          id="editor-stats-toggle-btn"
+          type="button"
+          onClick={() => setShowStats((prev) => !prev)}
+          title={showStats ? 'Сховати статистику нотатки' : 'Статистика нотатки (слова, символи)'}
+          aria-label="Статистика нотатки"
+          className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+            showStats ? 'text-neutral-950' : 'text-neutral-400 hover:text-neutral-800'
+          }`}
+        >
+          <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4" strokeWidth={showStats ? 2.5 : 1.75} />
+        </button>
+      </div>
     </main>
   );
 });

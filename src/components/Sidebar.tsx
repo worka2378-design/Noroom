@@ -23,6 +23,7 @@ import { Note, Folder } from '../types';
 import { formatNoteDate, extractPlainSnippet } from '../utils/storage';
 import { ExtractedLink } from '../utils/links';
 import { extractNoteSections, findMatchingSectionsInNote, NoteSection } from '../utils/sections';
+import { FloatingScrollbar } from './FloatingScrollbar';
 
 export interface SidebarHandle {
   createFolderDirectly: (parentId?: string | null) => void;
@@ -91,6 +92,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
   const [isDragOverRoot, setIsDragOverRoot] = useState(false);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const sidebarScrollRef = useRef<HTMLDivElement | null>(null);
 
   const handleCopyLinkUrl = (url: string, linkId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -724,8 +726,19 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
         isCollapsed ? 'w-0 opacity-0 overflow-hidden pointer-events-none' : 'w-64 sm:w-72 opacity-100'
       }`}
     >
+      {/* Floating minimal scrollbar in anchor dot style */}
+      <FloatingScrollbar
+        containerRef={sidebarScrollRef}
+        rightOffsetClass="right-2"
+        dotSizeClass="w-1.5 h-1.5"
+        topPadding={68}
+        bottomPadding={24}
+        showTooltip={false}
+      />
+
       {/* Main List Area (Notes or Links) - Scrolls continuously underneath the unified translucent header */}
       <div
+        ref={sidebarScrollRef}
         id="sidebar-main-content-zone"
         onDragOver={(e) => {
           e.preventDefault();
@@ -733,7 +746,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
         }}
         onDragLeave={() => setIsDragOverRoot(false)}
         onDrop={handleRootDrop}
-        className={`flex-1 overflow-y-auto px-3 pt-[58px] pb-6 space-y-1 transition-colors ${
+        className={`flex-1 overflow-y-auto scrollbar-none px-3 pt-[58px] pb-6 space-y-1 transition-colors ${
           isDragOverRoot ? 'bg-neutral-50/70' : ''
         }`}
       >

@@ -41,15 +41,15 @@ export const AnchorVerticalRail: React.FC<AnchorVerticalRailProps> = ({
             aria-label={section.title}
           >
             <span
-              className={`transition-all duration-200 rounded-full block pointer-events-none ${
+              className={`transition-all duration-200 rounded-full block pointer-events-none w-1.5 h-1.5 ${
                 isActive
-                  ? 'w-2.5 h-2.5 bg-neutral-900'
-                  : 'w-1.5 h-1.5 bg-neutral-300 group-hover:bg-neutral-600'
+                  ? 'bg-neutral-900 scale-100'
+                  : 'bg-neutral-300 group-hover:bg-neutral-600'
               }`}
             />
 
             {/* Floating Tooltip displaying anchor title */}
-            <span className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center whitespace-nowrap bg-neutral-900 text-white text-[11px] font-medium px-2.5 py-1 rounded shadow-md z-50">
+            <span className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center whitespace-nowrap bg-white/85 backdrop-blur-md border border-neutral-200/80 shadow-xs text-neutral-600 text-[11px] font-medium px-2.5 py-1 rounded-full z-50 animate-in fade-in slide-in-from-right-1 duration-150">
               {section.title}
             </span>
           </button>

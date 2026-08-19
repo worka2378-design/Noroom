@@ -196,21 +196,58 @@ a.rich-link:hover {
   outline-offset: -1.5px;
 }
 
-/* Custom clean scrollbar */
+/* Custom clean & unobtrusive modern scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #e5e5e5;
-  border-radius: 9999px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #d4d4d4;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* Completely hidden scrollbar utility */
+.scrollbar-none {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Ultra-subtle scrollbar that only appears on hover */
+.scrollbar-hover {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s ease;
+}
+
+.scrollbar-hover:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+
+.scrollbar-hover::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.scrollbar-hover:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
 }

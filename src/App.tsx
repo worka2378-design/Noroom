@@ -79,6 +79,31 @@ export default function App() {
   const [textColor, setTextColor] = useState('#1b1c1e');
   const [highlightColor, setHighlightColor] = useState('#fef08a');
 
+  // Typing state for auto-collapsing secondary toolbar tools and sidebar
+  const [isToolbarMenuOpen, setIsToolbarMenuOpen] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleEditorTyping = useCallback(() => {
+    setIsTyping(true);
+
+    // Auto-collapse layers/sidebar panel when editing text
+    setIsSidebarCollapsed((prev) => {
+      if (!prev) {
+        safeSetItem(SIDEBAR_STATE_KEY, 'collapsed');
+        return true;
+      }
+      return prev;
+    });
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = setTimeout(() => {
+      setIsTyping(false);
+    }, 1800);
+  }, []);
+
   const sidebarRef = useRef<SidebarHandle>(null);
   const editorPaneRef = useRef<EditorPaneHandle>(null);
 
@@ -799,107 +824,137 @@ export default function App() {
 
   return (
     <div className="relative w-full h-screen flex flex-col bg-white text-neutral-900 overflow-hidden font-sans">
-      {/* ================= ONE UNIFIED SEAMLESS TOP HEADER (Frosted Glass Full Width) ================= */}
+      {/* ================= ONE UNIFIED SEAMLESS TOP HEADER (Fully Transparent) ================= */}
       <header
         id="app-top-header"
-        className="fixed top-0 left-0 right-0 z-30 h-13 min-h-[50px] bg-white/40 backdrop-blur-md border-b border-neutral-200/40 flex items-center px-3 sm:px-4 select-none justify-between"
+        className="fixed top-0 left-0 right-0 z-30 h-13 min-h-[50px] bg-transparent pointer-events-none flex items-center px-3 sm:px-4 select-none justify-between"
       >
-        {/* Left Side: Sidebar Controls (aligned seamlessly with sidebar width) */}
+        {/* Left Side: Sidebar Controls */}
         <div
-          className={`flex items-center transition-all duration-200 shrink-0 ${
-            isSidebarCollapsed ? 'w-10' : 'w-64 sm:w-72'
+          className={`flex items-center transition-all duration-300 ease-out shrink-0 pointer-events-auto ${
+            isSidebarCollapsed ? 'w-auto' : 'w-64 sm:w-72'
           }`}
         >
-          {/* Signature Logo Toggle Button */}
-          <button
-            id="app-logo-toggle-btn"
-            type="button"
-            onClick={toggleSidebar}
-            title={isSidebarCollapsed ? 'Розгорнути панель' : 'Згорнути панель'}
-            aria-label="Згорнути / розгорнути панель"
-            className="flex items-center justify-center w-8 h-8 rounded-lg text-neutral-900 hover:text-neutral-600 transition-colors cursor-pointer group shrink-0"
-          >
-            <LogoIcon className="w-5 h-5 transition-transform duration-200 group-hover:scale-105" />
-          </button>
+          {isSidebarCollapsed ? (
+            /* Signature Logo Toggle Button without any backdrop when collapsed */
+            <button
+              id="app-logo-toggle-btn"
+              type="button"
+              onClick={toggleSidebar}
+              title="Розгорнути панель"
+              aria-label="Розгорнути панель"
+              className="flex items-center justify-center w-8 h-8 rounded-full text-neutral-900 hover:text-neutral-600 hover:bg-neutral-100/80 transition-colors cursor-pointer group shrink-0"
+            >
+              <LogoIcon className="w-5 h-5 transition-transform duration-200 group-hover:scale-105" />
+            </button>
+          ) : (
+            /* Floating frosted-glass pill wrapping logo + search + options when expanded */
+            <div
+              className="inline-flex items-center gap-1 p-1 bg-white/80 backdrop-blur-md border border-neutral-200/80 shadow-xs rounded-full transition-all duration-300 ease-out select-none w-full animate-in fade-in duration-200"
+            >
+              {/* Signature Logo Toggle Button */}
+              <button
+                id="app-logo-toggle-btn"
+                type="button"
+                onClick={toggleSidebar}
+                title="Згорнути панель"
+                aria-label="Згорнути панель"
+                className="flex items-center justify-center w-7 h-7 rounded-full text-neutral-900 hover:text-neutral-600 hover:bg-neutral-200/50 transition-colors cursor-pointer group shrink-0"
+              >
+                <LogoIcon className="w-4.5 h-4.5 transition-transform duration-200 group-hover:scale-105" />
+              </button>
 
-          {!isSidebarCollapsed && (
-            <div className="flex items-center gap-1.5 flex-1 min-w-0 pl-2 pr-3">
-              {/* Search Bar */}
-              <div className="relative flex-1 min-w-0">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" strokeWidth={1.75} />
-                <input
-                  id="sidebar-search-input"
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Пошук"
-                  className="w-full pl-8 pr-7 py-1.5 text-xs bg-neutral-50 hover:bg-neutral-100/60 focus:bg-white border border-neutral-200 focus:border-neutral-900 rounded-full outline-none transition-colors text-neutral-900 placeholder:text-neutral-400"
-                />
-                {searchTerm && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchTerm('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-neutral-400 hover:text-neutral-800 transition-colors cursor-pointer"
-                    title="Очистити пошук"
-                    aria-label="Очистити пошук"
-                  >
-                    <X className="w-3 h-3" strokeWidth={1.75} />
-                  </button>
-                )}
+              <div className="flex items-center gap-1 flex-1 min-w-0 pr-0.5 animate-in fade-in slide-in-from-left-2 duration-200">
+                {/* Search Bar */}
+                <div className="relative flex-1 min-w-0 flex items-center">
+                  <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" strokeWidth={1.75} />
+                  <input
+                    id="sidebar-search-input"
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Пошук"
+                    className="w-full pl-6 pr-5 py-1 text-xs bg-transparent text-neutral-900 placeholder:text-neutral-400 outline-none rounded-full"
+                  />
+                  {searchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchTerm('')}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-neutral-400 hover:text-neutral-800 transition-colors cursor-pointer"
+                      title="Очистити пошук"
+                      aria-label="Очистити пошук"
+                    >
+                      <X className="w-3 h-3" strokeWidth={1.75} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Add Folder Button */}
+                <button
+                  id="sidebar-add-folder-btn"
+                  type="button"
+                  onClick={() => sidebarRef.current?.createFolderDirectly(null)}
+                  title={viewMode === 'links' ? 'Створити головну папку для посилань' : 'Створити головну папку'}
+                  aria-label="Створити головну папку"
+                  className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/50 transition-colors shrink-0 cursor-pointer"
+                >
+                  <FolderPlus className="w-4 h-4" strokeWidth={1.75} />
+                </button>
+
+                {/* View mode toggle button */}
+                <button
+                  id="sidebar-links-toggle-btn"
+                  type="button"
+                  onClick={handleToggleViewMode}
+                  title={viewMode === 'links' ? 'Повернутися до нотаток' : 'Усі збережені посилання'}
+                  aria-label={viewMode === 'links' ? 'Повернутися до нотаток' : 'Усі збережені посилання'}
+                  className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors shrink-0 cursor-pointer ${
+                    viewMode === 'links'
+                      ? 'text-neutral-950 hover:bg-neutral-200/50'
+                      : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/50'
+                  }`}
+                >
+                  {viewMode === 'links' ? (
+                    <FileText className="w-4 h-4" strokeWidth={1.75} />
+                  ) : (
+                    <Link2 className="w-4 h-4" strokeWidth={1.75} />
+                  )}
+                </button>
+
+                {/* New Note Button */}
+                <button
+                  id="sidebar-new-note-btn"
+                  type="button"
+                  onClick={handleCreateNote}
+                  title="Нова нотатка (Alt+N)"
+                  aria-label="Нова нотатка"
+                  className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/50 transition-colors shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" strokeWidth={1.75} />
+                </button>
               </div>
-
-              {/* Add Folder Button */}
-              <button
-                id="sidebar-add-folder-btn"
-                type="button"
-                onClick={() => sidebarRef.current?.createFolderDirectly(null)}
-                title={viewMode === 'links' ? 'Створити головну папку для посилань' : 'Створити головну папку'}
-                aria-label="Створити головну папку"
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/80 transition-colors shrink-0 cursor-pointer"
-              >
-                <FolderPlus className="w-4 h-4" strokeWidth={1.75} />
-              </button>
-
-              {/* View mode toggle button */}
-              <button
-                id="sidebar-links-toggle-btn"
-                type="button"
-                onClick={handleToggleViewMode}
-                title={viewMode === 'links' ? 'Повернутися до нотаток' : 'Усі збережені посилання'}
-                aria-label={viewMode === 'links' ? 'Повернутися до нотаток' : 'Усі збережені посилання'}
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/80 transition-colors shrink-0 cursor-pointer"
-              >
-                {viewMode === 'links' ? (
-                  <FileText className="w-4 h-4 text-neutral-900" strokeWidth={1.75} />
-                ) : (
-                  <Link2 className="w-4 h-4 text-neutral-600" strokeWidth={1.75} />
-                )}
-              </button>
-
-              {/* New Note Button */}
-              <button
-                id="sidebar-new-note-btn"
-                type="button"
-                onClick={handleCreateNote}
-                title="Нова нотатка (Alt+N)"
-                aria-label="Нова нотатка"
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/80 transition-colors shrink-0 cursor-pointer"
-              >
-                <Plus className="w-4 h-4" strokeWidth={1.75} />
-              </button>
             </div>
           )}
         </div>
 
         {/* Center / Right: Formatting Toolbar (Contained strictly within editor space, scrollable if narrow) */}
-        <div className={`flex-1 min-w-0 flex items-center overflow-x-auto scrollbar-none px-2 ${!activeNote ? 'opacity-0 pointer-events-none' : ''}`}>
+        <div
+          className={`flex-1 min-w-0 flex items-center overflow-x-auto scrollbar-none px-2 transition-all duration-200 pointer-events-auto ${
+            !activeNote
+              ? 'opacity-0 pointer-events-none'
+              : 'opacity-100 translate-y-0'
+          }`}
+        >
           <div className="mx-auto flex items-center justify-center min-w-max">
             <EditorToolbar
               isSidebarCollapsed={isSidebarCollapsed}
+              isTyping={isTyping}
+              onMenuOpenChange={setIsToolbarMenuOpen}
               onExecCommand={(cmd, val) => editorPaneRef.current?.execCommand(cmd, val)}
               onFormatBlock={(tag) => editorPaneRef.current?.formatBlock(tag)}
               onApplyFontFamily={(font) => editorPaneRef.current?.applyFontFamily(font)}
               onApplyFontSize={(size) => editorPaneRef.current?.applyFontSize(size)}
+              onApplyLineHeight={(lh) => editorPaneRef.current?.applyLineHeight(lh)}
               onClearFormatting={() => editorPaneRef.current?.clearFormatting()}
               onOpenLinkModal={() => setIsLinkModalOpen(true)}
               onInsertImageFile={(file) => editorPaneRef.current?.insertImageFile(file)}
@@ -921,14 +976,13 @@ export default function App() {
         </div>
 
         {/* Far Right: Vault / Security Controls */}
-        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0 pl-1">
-          <div className="w-px h-4 bg-neutral-200/80 mx-0.5 sm:mx-1 shrink-0 select-none" />
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0 pl-1 pointer-events-auto">
           <button
             type="button"
             onClick={() => setIsVaultSetupOpen(true)}
             title={vaultMeta ? 'Параметри захисту (захист активний)' : 'Встановити захист нотаток'}
             aria-label={vaultMeta ? 'Параметри захисту (захист активний)' : 'Встановити захист нотаток'}
-            className="w-7 h-7 flex items-center justify-center rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/80 transition-colors shrink-0 cursor-pointer"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/80 transition-colors shrink-0 cursor-pointer"
           >
             {vaultMeta ? (
               <Lock className="w-4 h-4 text-neutral-900" strokeWidth={1.75} />
@@ -985,8 +1039,23 @@ export default function App() {
           onChangeTextColor={setTextColor}
           highlightColor={highlightColor}
           onChangeHighlightColor={setHighlightColor}
+          onTyping={handleEditorTyping}
         />
       </div>
+
+      {/* Floating Quick New Note Button (Visible only when sidebar/layers panel is collapsed) */}
+      {isSidebarCollapsed && (!isVaultLocked || !vaultMeta) && (
+        <button
+          id="floating-quick-new-note-btn"
+          type="button"
+          onClick={handleCreateNote}
+          title="Нова нотатка (Alt+N)"
+          aria-label="Нова нотатка"
+          className="fixed bottom-6 right-6 z-30 w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-full bg-white/75 backdrop-blur-md border border-neutral-200/80 shadow-2xs hover:bg-white/95 active:bg-neutral-100/90 text-neutral-900 transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer animate-in fade-in zoom-in-90"
+        >
+          <Plus className="w-4 h-4 text-neutral-900" strokeWidth={1.75} />
+        </button>
+      )}
 
       {/* Link Modal */}
       <LinkModal
