@@ -278,18 +278,15 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
 
+      // Only customize clipboard if the selection actually contains table elements or cells
       const range = selection.getRangeAt(0);
       const container = document.createElement('div');
       container.appendChild(range.cloneContents());
 
-      // Strip all anchor elements completely from the copied contents so anchor text/icons are NEVER copied
-      const anchorBlocks = container.querySelectorAll('.note-anchor-block, [data-anchor-id]');
-      const hadAnchors = anchorBlocks.length > 0;
-      anchorBlocks.forEach((el) => el.remove());
-
       const tables = container.querySelectorAll('table');
       const cells = container.querySelectorAll('td, th');
 
+      // If tables or table cells are selected, style them cleanly for Word / Excel / Google Docs export
       if (tables.length > 0 || cells.length > 0) {
         tables.forEach((tbl) => {
           tbl.style.borderCollapse = 'collapse';
@@ -310,16 +307,20 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
           el.style.padding = '6px 10px';
           el.style.verticalAlign = 'top';
         });
-      }
 
-      // Intercept and write clean content without anchors or with formatted tables
-      if (hadAnchors || tables.length > 0 || cells.length > 0) {
-        if (e.clipboardData) {
+        // Strip UI controls if present
+        container.querySelectorAll('.table-editor-ui-control, .anchor-delete-btn').forEach((el) => el.remove());
+
+        const htmlData = container.innerHTML;
+        const textData = container.textContent || container.innerText || '';
+
+        if (htmlData && textData && e.clipboardData) {
           e.preventDefault();
-          e.clipboardData.setData('text/html', container.innerHTML);
-          e.clipboardData.setData('text/plain', container.textContent || container.innerText || '');
+          e.clipboardData.setData('text/html', htmlData);
+          e.clipboardData.setData('text/plain', textData);
         }
       }
+      // For all regular text, paragraphs, headings: browser native copy will cleanly and reliably copy the selection
     };
 
     editor.addEventListener('copy', handleCopy);
@@ -499,6 +500,17 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
       handleContentInput();
       return;
     }
+
+    // For any standard paste (text, rich HTML, tables), ensure content change is saved
+    setTimeout(() => {
+      handleContentInput();
+    }, 10);
+  };
+
+  const handleCut = () => {
+    setTimeout(() => {
+      handleContentInput();
+    }, 10);
   };
 
   const handleContentClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -986,6 +998,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
             onBlur={handleContentBlur}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
+            onCut={handleCut}
             onClick={handleContentClick}
             data-placeholder="Почніть писати…"
             className="editor-typography outline-none text-neutral-800 text-base leading-relaxed min-h-[400px]"

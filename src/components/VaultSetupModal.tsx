@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Lock,
   Eye,
@@ -15,7 +15,8 @@ interface VaultSetupModalProps {
   isConfigured: boolean;
   currentMeta: VaultMeta | null;
   onSetupVault: (password: string, autoLockMinutes: number) => Promise<boolean>;
-  onChangePassword: (oldPassword: string, newPassword: string, autoLockMinutes: number) => Promise<boolean>;
+  onChangePassword: (oldPassword: string, newPassword: string, autoLockMinutes?: number) => Promise<boolean>;
+  onUpdateAutoLockMinutes?: (autoLockMinutes: number) => void;
   onDisableVault: (currentPassword: string) => Promise<boolean>;
   onExportBackup: () => void;
 }
@@ -27,12 +28,11 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
   currentMeta,
   onSetupVault,
   onChangePassword,
+  onUpdateAutoLockMinutes,
   onDisableVault,
   onExportBackup,
 }) => {
-  const [activeTab, setActiveTab] = useState<'setup' | 'settings' | 'disable'>(
-    isConfigured ? 'settings' : 'setup'
-  );
+  const [activeTab, setActiveTab] = useState<'settings' | 'password' | 'disable'>('settings');
 
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -49,9 +49,27 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  useEffect(() => {
+    if (currentMeta?.autoLockMinutes !== undefined) {
+      setAutoLockMinutes(currentMeta.autoLockMinutes);
+    }
+  }, [currentMeta?.autoLockMinutes]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setError(null);
+      setSuccessMsg(null);
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setActiveTab('settings');
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
-  const handleSaveSetup = async (e: React.FormEvent) => {
+  // Handle initial setup
+  const handleInitialSetup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
@@ -68,34 +86,14 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
 
     setIsLoading(true);
     try {
-      if (!isConfigured) {
-        const ok = await onSetupVault(newPassword, autoLockMinutes);
-        if (ok) {
-          setSuccessMsg('Сейф створено.');
-          setTimeout(() => {
-            onClose();
-          }, 800);
-        } else {
-          setError('Помилка шифрування сейфу.');
-        }
+      const ok = await onSetupVault(newPassword, autoLockMinutes);
+      if (ok) {
+        setSuccessMsg('Сейф створено.');
+        setTimeout(() => {
+          onClose();
+        }, 800);
       } else {
-        if (!oldPassword) {
-          setError('Введіть поточний пароль.');
-          setIsLoading(false);
-          return;
-        }
-        const ok = await onChangePassword(oldPassword, newPassword, autoLockMinutes);
-        if (ok) {
-          setSuccessMsg('Пароль оновлено.');
-          setOldPassword('');
-          setNewPassword('');
-          setConfirmPassword('');
-          setTimeout(() => {
-            onClose();
-          }, 800);
-        } else {
-          setError('Невірний поточний пароль.');
-        }
+        setError('Помилка шифрування сейфу.');
       }
     } catch (err) {
       console.error(err);
@@ -105,7 +103,61 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
     }
   };
 
-  const handleDisable = async (e: React.FormEvent) => {
+  // Handle auto-lock time change without changing password
+  const handleAutoLockChange = (minutes: number) => {
+    setAutoLockMinutes(minutes);
+    if (onUpdateAutoLockMinutes) {
+      onUpdateAutoLockMinutes(minutes);
+      setSuccessMsg('Час автоблокування збережено.');
+      setTimeout(() => setSuccessMsg(null), 2500);
+    }
+  };
+
+  // Handle change password only
+  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccessMsg(null);
+
+    if (!oldPassword) {
+      setError('Введіть поточний пароль.');
+      return;
+    }
+
+    if (newPassword.length < 4) {
+      setError('Новий пароль має містити щонайменше 4 символи.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('Паролі не співпадають.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const ok = await onChangePassword(oldPassword, newPassword, autoLockMinutes);
+      if (ok) {
+        setSuccessMsg('Пароль успішно оновлено.');
+        setOldPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setTimeout(() => {
+          onClose();
+        }, 800);
+      } else {
+        setError('Невірний поточний пароль.');
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Не вдалося змінити пароль.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle disable vault
+  const handleDisableSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     if (!oldPassword) {
@@ -157,9 +209,9 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
           </button>
         </div>
 
-        {/* Tabs for configured vault */}
+        {/* Clean tabs without background underlays */}
         {isConfigured && (
-          <div className="flex border-b border-neutral-200 gap-4 text-xs font-medium pt-1">
+          <div className="flex items-center gap-4 text-xs font-medium pt-1">
             <button
               type="button"
               onClick={() => {
@@ -167,9 +219,24 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
                 setError(null);
                 setSuccessMsg(null);
               }}
-              className={`pb-2 transition-colors cursor-pointer ${
+              className={`transition-colors cursor-pointer ${
                 activeTab === 'settings'
-                  ? 'border-b-2 border-neutral-900 text-neutral-900 font-semibold'
+                  ? 'text-neutral-900 font-semibold'
+                  : 'text-neutral-500 hover:text-neutral-800'
+              }`}
+            >
+              Параметри
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('password');
+                setError(null);
+                setSuccessMsg(null);
+              }}
+              className={`transition-colors cursor-pointer ${
+                activeTab === 'password'
+                  ? 'text-neutral-900 font-semibold'
                   : 'text-neutral-500 hover:text-neutral-800'
               }`}
             >
@@ -182,9 +249,9 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
                 setError(null);
                 setSuccessMsg(null);
               }}
-              className={`pb-2 transition-colors cursor-pointer ${
+              className={`transition-colors cursor-pointer ${
                 activeTab === 'disable'
-                  ? 'border-b-2 border-neutral-900 text-neutral-900 font-semibold'
+                  ? 'text-neutral-900 font-semibold'
                   : 'text-neutral-500 hover:text-neutral-800'
               }`}
             >
@@ -206,34 +273,16 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
           </p>
         )}
 
-        {/* Form Body */}
-        {activeTab !== 'disable' ? (
-          <form onSubmit={handleSaveSetup} className="space-y-3">
-            {isConfigured && (
-              <div className="relative">
-                <input
-                  type={showOldPass ? 'text' : 'password'}
-                  value={oldPassword}
-                  onChange={(e) => setOldPassword(e.target.value)}
-                  placeholder="Поточний пароль"
-                  className="w-full px-3.5 py-2 pr-9 text-xs bg-neutral-50 border border-neutral-200 rounded-full outline-none focus:border-neutral-900 focus:bg-white text-neutral-900 transition-colors"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowOldPass(!showOldPass)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-400 hover:text-neutral-700 cursor-pointer"
-                >
-                  {showOldPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            )}
-
+        {/* Body Content */}
+        {!isConfigured ? (
+          /* Initial Vault Setup Form */
+          <form onSubmit={handleInitialSetup} className="space-y-3">
             <div className="relative">
               <input
                 type={showNewPass ? 'text' : 'password'}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder={isConfigured ? 'Новий пароль' : 'Мастер-пароль'}
+                placeholder="Мастер-пароль"
                 className="w-full px-3.5 py-2 pr-9 text-xs bg-neutral-50 border border-neutral-200 rounded-full outline-none focus:border-neutral-900 focus:bg-white text-neutral-900 transition-colors"
               />
               <button
@@ -292,12 +341,129 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
                 disabled={isLoading || !newPassword || !confirmPassword}
                 className="px-4 py-1.5 text-xs font-semibold text-neutral-900 bg-neutral-100 hover:bg-neutral-200 active:bg-neutral-300 border border-neutral-300/80 rounded-full transition-colors disabled:opacity-40 disabled:hover:bg-neutral-100 disabled:cursor-not-allowed cursor-pointer"
               >
-                {isConfigured ? 'Оновити' : 'Зашифрувати'}
+                Зашифрувати
+              </button>
+            </div>
+          </form>
+        ) : activeTab === 'settings' ? (
+          /* General Settings (Auto-lock time change without password) */
+          <div className="space-y-3.5">
+            <div className="relative">
+              <select
+                value={autoLockMinutes}
+                onChange={(e) => handleAutoLockChange(Number(e.target.value))}
+                className="w-full appearance-none pl-3.5 pr-9 py-2 text-xs bg-neutral-50 border border-neutral-200 rounded-full outline-none focus:border-neutral-900 focus:bg-white text-neutral-900 cursor-pointer transition-colors"
+              >
+                <option value={5}>Автоблокування: 5 хвилин</option>
+                <option value={15}>Автоблокування: 15 хвилин</option>
+                <option value={30}>Автоблокування: 30 хвилин</option>
+                <option value={60}>Автоблокування: 1 година</option>
+                <option value={0}>Автоблокування: лише вручну</option>
+              </select>
+              <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-neutral-500">
+                <ChevronDown className="w-3.5 h-3.5" strokeWidth={2} />
+              </div>
+            </div>
+
+            {/* Export encrypted backup option without top divider line */}
+            <div className="pt-0.5">
+              <button
+                type="button"
+                onClick={onExportBackup}
+                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-neutral-50 hover:bg-neutral-100 text-neutral-800 text-xs font-medium rounded-full transition-colors cursor-pointer border border-neutral-200/80"
+              >
+                <Download className="w-3.5 h-3.5 text-neutral-600" strokeWidth={1.75} />
+                <span>Експорт зашифрованого бекапу (.vault)</span>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-end pt-1">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-1.5 text-xs font-semibold text-neutral-900 bg-neutral-100 hover:bg-neutral-200 active:bg-neutral-300 border border-neutral-300/80 rounded-full transition-colors cursor-pointer"
+              >
+                Готово
+              </button>
+            </div>
+          </div>
+        ) : activeTab === 'password' ? (
+          /* Change Password Form */
+          <form onSubmit={handleChangePasswordSubmit} className="space-y-3">
+            <div className="relative">
+              <input
+                type={showOldPass ? 'text' : 'password'}
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                placeholder="Поточний пароль"
+                className="w-full px-3.5 py-2 pr-9 text-xs bg-neutral-50 border border-neutral-200 rounded-full outline-none focus:border-neutral-900 focus:bg-white text-neutral-900 transition-colors"
+              />
+              <button
+                type="button"
+                onClick={() => setShowOldPass(!showOldPass)}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-400 hover:text-neutral-700 cursor-pointer"
+              >
+                {showOldPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+
+            <div className="relative">
+              <input
+                type={showNewPass ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Новий пароль"
+                className="w-full px-3.5 py-2 pr-9 text-xs bg-neutral-50 border border-neutral-200 rounded-full outline-none focus:border-neutral-900 focus:bg-white text-neutral-900 transition-colors"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPass(!showNewPass)}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-400 hover:text-neutral-700 cursor-pointer"
+              >
+                {showNewPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+
+            <div className="relative">
+              <input
+                type={showConfirmPass ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Підтвердження пароля"
+                className="w-full px-3.5 py-2 pr-9 text-xs bg-neutral-50 border border-neutral-200 rounded-full outline-none focus:border-neutral-900 focus:bg-white text-neutral-900 transition-colors"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPass(!showConfirmPass)}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-400 hover:text-neutral-700 cursor-pointer"
+              >
+                {showConfirmPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('settings');
+                  setError(null);
+                }}
+                className="px-3.5 py-1.5 text-xs font-medium text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 rounded-full transition-colors cursor-pointer"
+              >
+                Назад
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading || !oldPassword || !newPassword || !confirmPassword}
+                className="px-4 py-1.5 text-xs font-semibold text-neutral-900 bg-neutral-100 hover:bg-neutral-200 active:bg-neutral-300 border border-neutral-300/80 rounded-full transition-colors disabled:opacity-40 disabled:hover:bg-neutral-100 disabled:cursor-not-allowed cursor-pointer"
+              >
+                Оновити пароль
               </button>
             </div>
           </form>
         ) : (
-          <form onSubmit={handleDisable} className="space-y-3">
+          /* Disable Vault Form */
+          <form onSubmit={handleDisableSubmit} className="space-y-3">
             <p className="text-xs text-neutral-500 leading-relaxed px-1">
               Вимкнення захисту збереже всі нотатки у звичайному форматі без пароля.
             </p>
@@ -315,10 +481,13 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => {
+                  setActiveTab('settings');
+                  setError(null);
+                }}
                 className="px-3.5 py-1.5 text-xs font-medium text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 rounded-full transition-colors cursor-pointer"
               >
-                Скасувати
+                Назад
               </button>
               <button
                 type="submit"
@@ -329,20 +498,6 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
               </button>
             </div>
           </form>
-        )}
-
-        {/* Export encrypted backup option */}
-        {isConfigured && (
-          <div className="pt-2 border-t border-neutral-100">
-            <button
-              type="button"
-              onClick={onExportBackup}
-              className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-neutral-50 hover:bg-neutral-100 text-neutral-800 text-xs font-medium rounded-full transition-colors cursor-pointer border border-neutral-200/80"
-            >
-              <Download className="w-3.5 h-3.5 text-neutral-600" strokeWidth={1.75} />
-              <span>Експорт зашифрованого бекапу (.vault)</span>
-            </button>
-          </div>
         )}
       </div>
     </div>

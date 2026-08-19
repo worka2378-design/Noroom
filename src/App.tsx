@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Search, X, FolderPlus, FileText, Link2, Plus, Shield, ShieldCheck, Lock } from 'lucide-react';
+import { Search, X, FolderPlus, FileText, Link2, Plus, Lock, Unlock } from 'lucide-react';
 import { Note, Folder } from './types';
 import {
   loadSavedNotes,
@@ -226,13 +226,14 @@ export default function App() {
 
   // Change master password
   const handleChangePassword = useCallback(
-    async (oldPassword: string, newPassword: string, autoLockMinutes: number): Promise<boolean> => {
+    async (oldPassword: string, newPassword: string, autoLockMinutes?: number): Promise<boolean> => {
       if (!vaultMeta) return false;
       const isValid = await verifyVaultPassword(oldPassword, vaultMeta);
       if (!isValid) return false;
 
       try {
-        const meta = await createVaultMeta(newPassword, autoLockMinutes);
+        const lockMinutes = autoLockMinutes ?? vaultMeta.autoLockMinutes ?? 15;
+        const meta = await createVaultMeta(newPassword, lockMinutes);
         const payload: VaultPayload = {
           notes,
           folders,
@@ -253,6 +254,20 @@ export default function App() {
       }
     },
     [activeId, folders, linkFolderMap, notes, vaultMeta]
+  );
+
+  // Update auto-lock duration without requiring password change
+  const handleUpdateAutoLockMinutes = useCallback(
+    (newMinutes: number) => {
+      if (!vaultMeta) return;
+      const updatedMeta: VaultMeta = {
+        ...vaultMeta,
+        autoLockMinutes: newMinutes,
+      };
+      saveVaultMeta(updatedMeta);
+      setVaultMeta(updatedMeta);
+    },
+    [vaultMeta]
   );
 
   // Disable vault encryption (convert back to regular local storage)
@@ -780,17 +795,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [handleCreateNote, handleLockVault, isVaultLocked, vaultMeta]);
 
-  // If vault is locked, render full-screen lock screen
-  if (isVaultLocked && vaultMeta) {
-    return (
-      <VaultLockScreen
-        meta={vaultMeta}
-        onUnlock={handleUnlockVault}
-        onResetVault={handleResetVault}
-      />
-    );
-  }
-
   const activeNote = notes.find((n) => n.id === activeId) || null;
 
   return (
@@ -900,7 +904,6 @@ export default function App() {
               onOpenLinkModal={() => setIsLinkModalOpen(true)}
               onInsertImageFile={(file) => editorPaneRef.current?.insertImageFile(file)}
               onInsertAnchor={() => editorPaneRef.current?.insertAnchor()}
-              onAutoPartitionAnchors={() => editorPaneRef.current?.autoPartitionAnchors()}
               onInsertTable={(rows, cols) => editorPaneRef.current?.insertTable(rows, cols)}
               onExport={(format) => editorPaneRef.current?.exportNote(format)}
               textColor={textColor}
@@ -920,43 +923,24 @@ export default function App() {
         {/* Far Right: Vault / Security Controls */}
         <div className="flex items-center gap-0.5 sm:gap-1 shrink-0 pl-1">
           <div className="w-px h-4 bg-neutral-200/80 mx-0.5 sm:mx-1 shrink-0 select-none" />
-          {vaultMeta ? (
-            <>
-              <button
-                type="button"
-                onClick={handleLockVault}
-                title="Заблокувати сейф (Ctrl+L)"
-                aria-label="Заблокувати сейф"
-                className="w-7 h-7 flex items-center justify-center rounded-md text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/70 transition-colors shrink-0 cursor-pointer"
-              >
-                <Lock className="w-4 h-4" strokeWidth={1.75} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsVaultSetupOpen(true)}
-                title="Параметри захисту"
-                aria-label="Параметри захисту"
-                className="w-7 h-7 flex items-center justify-center rounded-md text-neutral-900 bg-neutral-200/70 hover:bg-neutral-200 transition-colors shrink-0 cursor-pointer"
-              >
-                <ShieldCheck className="w-4 h-4" strokeWidth={1.75} />
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsVaultSetupOpen(true)}
-              title="Захистити нотатки паролем"
-              aria-label="Захистити нотатки паролем"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/70 transition-colors shrink-0 cursor-pointer"
-            >
-              <Shield className="w-4 h-4" strokeWidth={1.75} />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setIsVaultSetupOpen(true)}
+            title={vaultMeta ? 'Параметри захисту (захист активний)' : 'Встановити захист нотаток'}
+            aria-label={vaultMeta ? 'Параметри захисту (захист активний)' : 'Встановити захист нотаток'}
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/80 transition-colors shrink-0 cursor-pointer"
+          >
+            {vaultMeta ? (
+              <Lock className="w-4 h-4 text-neutral-900" strokeWidth={1.75} />
+            ) : (
+              <Unlock className="w-4 h-4 text-neutral-500" strokeWidth={1.75} />
+            )}
+          </button>
         </div>
       </header>
 
       {/* Main Body (Seamless Continuous Panels) */}
-      <div className="flex-1 flex min-h-0 w-full">
+      <div className={`flex-1 flex min-h-0 w-full ${isVaultLocked && vaultMeta ? 'pointer-events-none' : ''}`}>
         {/* Sidebar navigation */}
         <Sidebar
           ref={sidebarRef}
@@ -1023,9 +1007,19 @@ export default function App() {
         currentMeta={vaultMeta}
         onSetupVault={handleSetupVault}
         onChangePassword={handleChangePassword}
+        onUpdateAutoLockMinutes={handleUpdateAutoLockMinutes}
         onDisableVault={handleDisableVault}
         onExportBackup={handleExportBackup}
       />
+
+      {/* Vault Auto-Lock & Security Lock Screen Overlay */}
+      {isVaultLocked && vaultMeta && (
+        <VaultLockScreen
+          meta={vaultMeta}
+          onUnlock={handleUnlockVault}
+          onResetVault={handleResetVault}
+        />
+      )}
     </div>
   );
 }

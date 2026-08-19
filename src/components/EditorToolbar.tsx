@@ -20,7 +20,6 @@ import {
   Link2,
   Image as ImageIcon,
   Anchor,
-  Sparkles,
   Baseline,
   Highlighter,
   Undo,
@@ -70,7 +69,6 @@ interface EditorToolbarProps {
   onOpenLinkModal: () => void;
   onInsertImageFile: (file: File) => void;
   onInsertAnchor?: () => void;
-  onAutoPartitionAnchors?: () => void;
   onInsertTable?: () => void;
   onExport: (format: 'markdown' | 'html' | 'txt') => void;
   textColor: string;
@@ -89,7 +87,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onOpenLinkModal,
   onInsertImageFile,
   onInsertAnchor,
-  onAutoPartitionAnchors,
   onInsertTable,
   onExport,
   textColor,
@@ -547,20 +544,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             aria-label="Вставити якір"
           >
             <Anchor className="w-4 h-4" strokeWidth={1.75} />
-          </button>
-        )}
-        {onAutoPartitionAnchors && (
-          <button
-            type="button"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onAutoPartitionAnchors();
-            }}
-            className={getBtnClass(false)}
-            title="Автоматично розставити якорі розділів"
-            aria-label="Автоматично розставити якорі розділів"
-          >
-            <Sparkles className="w-4 h-4" strokeWidth={1.75} />
           </button>
         )}
         {onInsertTable && (

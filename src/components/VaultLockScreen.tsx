@@ -47,8 +47,8 @@ export const VaultLockScreen: React.FC<VaultLockScreenProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#fafaf9] px-4 select-none">
-      <div className="w-full max-w-xs bg-white rounded-2xl shadow-sm border border-neutral-200/80 p-6 sm:p-7 animate-in fade-in zoom-in-95 duration-150 text-center">
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/25 backdrop-blur-md px-4 select-none animate-in fade-in duration-200">
+      <div className="w-full max-w-xs bg-white rounded-2xl shadow-2xl border border-neutral-200/80 p-6 sm:p-7 animate-in fade-in zoom-in-95 duration-150 text-center">
         {/* Logo without background container */}
         <div className="flex justify-center mb-6">
           <LogoIcon className="w-10 h-10" />

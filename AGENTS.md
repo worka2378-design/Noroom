@@ -20,4 +20,13 @@
 ## 4. Modal Cards & Containers
 - **Card Styling**: `rounded-2xl shadow-xl border border-neutral-200 bg-white p-6`.
 - **Backdrop**: Subtle dark blur `bg-black/20 backdrop-blur-xs`.
-- **Lock Screen**: Clean minimalist card, centered logo (`LogoIcon`), embedded input submit arrow, no unnecessary dividers or technical encryption subtitles.
+- **No Unnecessary Dividers, Underlines, or Tab Underlays**: Avoid horizontal border dividers (`border-t`, `border-b`) and underline borders (`border-b-2`). Tabs use clean typography buttons without background underlays.
+- **Lock Screen**: Clean minimalist card, centered logo (`LogoIcon`), embedded input submit arrow, no unnecessary dividers or technical encryption subtitles. Screen displayed automatically via user-set auto-lock timer with backdrop blur over the interface.
+
+## 5. Header & Security Controls
+- **Lock Icon in Header**: Single lock indicator button.
+  - When vault protection is configured: closed lock (`Lock`, `text-neutral-900`).
+  - When vault protection is not configured: open lock (`Unlock`, `text-neutral-500`).
+  - Clicking this icon opens the Vault Setup & Security Modal.
+  - No separate manual lock icon in the header. Locking occurs automatically via the user-configured inactivity timer (or Ctrl+L shortcut).
+  - Changing the auto-lock duration in settings does not require re-entering or modifying the password.

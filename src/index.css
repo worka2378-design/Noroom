@@ -122,7 +122,6 @@ a.rich-link {
   vertical-align: middle !important;
   line-height: 1.4 !important;
   transition: all 0.15s ease !important;
-  user-select: all !important;
   cursor: pointer !important;
 }
 
