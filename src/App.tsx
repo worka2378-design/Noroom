@@ -824,19 +824,19 @@ export default function App() {
 
   return (
     <div className="relative w-full h-screen flex flex-col bg-white text-neutral-900 overflow-hidden font-sans">
-      {/* ================= ONE UNIFIED SEAMLESS TOP HEADER (Fully Transparent) ================= */}
+      {/* ================= ONE UNIFIED SEAMLESS TOP HEADER (Floating Island Style) ================= */}
       <header
         id="app-top-header"
-        className="fixed top-0 left-0 right-0 z-30 h-13 min-h-[50px] bg-transparent pointer-events-none flex items-center px-3 sm:px-4 select-none justify-between"
+        className="fixed top-3.5 sm:top-4 left-0 right-0 z-30 pointer-events-none flex items-center select-none"
       >
-        {/* Left Side: Sidebar Controls */}
+        {/* Left Side: Sidebar Controls (Matches Sidebar width exactly) */}
         <div
-          className={`flex items-center transition-all duration-300 ease-out shrink-0 pointer-events-auto ${
+          className={`flex items-center px-3.5 sm:px-4 transition-all duration-300 ease-out shrink-0 pointer-events-auto ${
             isSidebarCollapsed ? 'w-auto' : 'w-64 sm:w-72'
           }`}
         >
           {isSidebarCollapsed ? (
-            /* Signature Logo Toggle Button without any backdrop when collapsed */
+            /* Signature Pure Logo Toggle Button without background pill when collapsed */
             <button
               id="app-logo-toggle-btn"
               type="button"
@@ -850,7 +850,7 @@ export default function App() {
           ) : (
             /* Floating frosted-glass pill wrapping logo + search + options when expanded */
             <div
-              className="inline-flex items-center gap-1 p-1 bg-white/80 backdrop-blur-md border border-neutral-200/80 shadow-xs rounded-full transition-all duration-300 ease-out select-none w-full animate-in fade-in duration-200"
+              className="inline-flex items-center gap-1 p-1 bg-white/70 backdrop-blur-xl border border-neutral-200/80 shadow-2xs rounded-full transition-all duration-300 ease-out select-none w-full animate-in fade-in duration-200"
             >
               {/* Signature Logo Toggle Button */}
               <button
@@ -937,15 +937,15 @@ export default function App() {
           )}
         </div>
 
-        {/* Center / Right: Formatting Toolbar (Contained strictly within editor space, scrollable if narrow) */}
+        {/* Center / Editor Space: Perfectly matches EditorPane layout and aligns with document column */}
         <div
-          className={`flex-1 min-w-0 flex items-center overflow-x-auto scrollbar-none px-2 transition-all duration-200 pointer-events-auto ${
+          className={`flex-1 min-w-0 relative flex items-center px-6 sm:px-12 md:px-16 transition-all duration-200 pointer-events-auto ${
             !activeNote
               ? 'opacity-0 pointer-events-none'
               : 'opacity-100 translate-y-0'
           }`}
         >
-          <div className="mx-auto flex items-center justify-center min-w-max">
+          <div className="w-full max-w-3xl mx-auto flex items-center justify-center">
             <EditorToolbar
               isSidebarCollapsed={isSidebarCollapsed}
               isTyping={isTyping}
@@ -975,14 +975,14 @@ export default function App() {
           </div>
         </div>
 
-        {/* Far Right: Vault / Security Controls */}
-        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0 pl-1 pointer-events-auto">
+        {/* Far Right: Vault / Security Controls (Absolute positioned so it doesn't offset toolbar centering) */}
+        <div className="absolute right-3.5 sm:right-5 top-1/2 -translate-y-1/2 pointer-events-auto z-10">
           <button
             type="button"
             onClick={() => setIsVaultSetupOpen(true)}
             title={vaultMeta ? 'Параметри захисту (захист активний)' : 'Встановити захист нотаток'}
             aria-label={vaultMeta ? 'Параметри захисту (захист активний)' : 'Встановити захист нотаток'}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/80 transition-colors shrink-0 cursor-pointer"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-white/70 backdrop-blur-xl border border-neutral-200/80 shadow-2xs hover:bg-white/95 active:bg-neutral-100/90 text-neutral-600 hover:text-neutral-900 transition-colors shrink-0 cursor-pointer"
           >
             {vaultMeta ? (
               <Lock className="w-4 h-4 text-neutral-900" strokeWidth={1.75} />

@@ -345,7 +345,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   return (
     <div
       id="editor-toolbar"
-      className={`inline-flex items-center gap-0.5 sm:gap-1 p-1 bg-white/75 backdrop-blur-md border border-neutral-200/80 shadow-2xs rounded-full transition-all duration-300 ease-out select-none shrink-0 ${
+      className={`inline-flex items-center gap-0.5 sm:gap-1 p-1 bg-white/70 backdrop-blur-xl border border-neutral-200/80 shadow-2xs rounded-full transition-all duration-300 ease-out select-none shrink-0 ${
         isExpanded ? 'max-w-full' : 'max-w-max'
       }`}
     >

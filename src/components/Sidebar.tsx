@@ -731,7 +731,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
         containerRef={sidebarScrollRef}
         rightOffsetClass="right-2"
         dotSizeClass="w-1.5 h-1.5"
-        topPadding={68}
+        topPadding={76}
         bottomPadding={24}
         showTooltip={false}
       />
@@ -746,7 +746,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
         }}
         onDragLeave={() => setIsDragOverRoot(false)}
         onDrop={handleRootDrop}
-        className={`flex-1 overflow-y-auto scrollbar-none px-3 pt-[58px] pb-6 space-y-1 transition-colors ${
+        className={`flex-1 overflow-y-auto scrollbar-none px-3 pt-[72px] sm:pt-[76px] pb-6 space-y-1 transition-colors [mask-image:linear-gradient(to_bottom,transparent_0px,transparent_4px,black_18px,black_100%)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0px,transparent_4px,black_18px,black_100%)] ${
           isDragOverRoot ? 'bg-neutral-50/70' : ''
         }`}
       >

@@ -1156,17 +1156,17 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
           containerRef={documentFrameRef}
           rightOffsetClass="right-3 sm:right-6"
           dotSizeClass="w-1.5 h-1.5"
-          topPadding={68}
+          topPadding={76}
           bottomPadding={32}
         />
       )}
 
-      {/* Document Workspace (Scrolls under the seamless translucent header) */}
+      {/* Document Workspace (Scrolls under the seamless translucent floating island header) */}
       <div
         ref={documentFrameRef}
         id="editor-document-frame"
         onScroll={handleDocumentScroll}
-        className="flex-1 overflow-y-auto scrollbar-none px-6 sm:px-12 md:px-16 pt-16 sm:pt-20 pb-24"
+        className="flex-1 overflow-y-auto scrollbar-none px-6 sm:px-12 md:px-16 pt-20 sm:pt-24 pb-24 [mask-image:linear-gradient(to_bottom,transparent_0px,transparent_4px,black_18px,black_100%)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0px,transparent_4px,black_18px,black_100%)]"
       >
         <div className="max-w-3xl mx-auto relative">
           {/* Interactive Table Editor Overlay (Word-like resizing, +/- rows/cols, Word copy) */}
