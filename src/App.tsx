@@ -832,7 +832,7 @@ export default function App() {
         {/* Left Side: Sidebar Controls (Matches Sidebar width exactly) */}
         <div
           className={`flex items-center px-3.5 sm:px-4 transition-all duration-300 ease-out shrink-0 pointer-events-auto ${
-            isSidebarCollapsed ? 'w-auto' : 'w-64 sm:w-72'
+            isSidebarCollapsed ? 'w-auto' : 'w-72 sm:w-80'
           }`}
         >
           {isSidebarCollapsed ? (

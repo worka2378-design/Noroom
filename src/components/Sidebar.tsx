@@ -638,11 +638,11 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
                 className="w-full text-xs font-medium text-neutral-900 bg-white border border-neutral-300 focus:border-neutral-900 rounded-full px-2.5 py-0.5 outline-none transition-colors"
               />
             ) : (
-              <div className="flex items-center gap-1.5 truncate">
+              <div className="flex items-center gap-1 min-w-0 flex-1">
                 <span
                   onDoubleClick={(e) => startRename(folder, e)}
-                  title="Подвійний клік щоб змінити назву"
-                  className={`text-xs truncate block leading-tight hover:text-neutral-950 ${
+                  title={`${folder.name} (Подвійний клік щоб змінити назву)`}
+                  className={`text-xs truncate block leading-tight hover:text-neutral-950 flex-1 min-w-0 ${
                     isSubFolder ? 'font-normal text-neutral-700' : 'font-medium text-neutral-800'
                   }`}
                 >
@@ -651,7 +651,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
                 {folder.autoCreated && !folder.interacted && (
                   <span
                     title="Автоматично створена папка"
-                    className="text-[9px] text-neutral-400 bg-neutral-100 px-1 py-0.2 rounded font-normal shrink-0"
+                    className="text-[9px] text-neutral-400 font-normal shrink-0 tracking-tight select-none"
                   >
                     авто
                   </span>
@@ -723,7 +723,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
     <aside
       id="app-sidebar"
       className={`h-full relative flex flex-col bg-white transition-all duration-200 select-none ${
-        isCollapsed ? 'w-0 opacity-0 overflow-hidden pointer-events-none' : 'w-64 sm:w-72 opacity-100'
+        isCollapsed ? 'w-0 opacity-0 overflow-hidden pointer-events-none' : 'w-72 sm:w-80 opacity-100'
       }`}
     >
       {/* Floating minimal scrollbar in anchor dot style */}
