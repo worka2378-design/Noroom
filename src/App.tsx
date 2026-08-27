@@ -799,6 +799,11 @@ export default function App() {
     setActiveId(newNote.id);
     setViewMode('notes');
 
+    if (window.matchMedia('(max-width: 639px)').matches) {
+      setIsSidebarCollapsed(true);
+      safeSetItem(SIDEBAR_STATE_KEY, 'collapsed');
+    }
+
     // If sidebar is collapsed on small screen, keep focus on editor
     setTimeout(() => {
       const input = document.getElementById('editor-title-input') as HTMLInputElement | null;
@@ -835,12 +840,20 @@ export default function App() {
   const handleSelectNote = useCallback((id: string, anchorId?: string | null) => {
     setActiveId(id);
     setTargetAnchorId(anchorId || null);
+    if (window.matchMedia('(max-width: 639px)').matches) {
+      setIsSidebarCollapsed(true);
+      safeSetItem(SIDEBAR_STATE_KEY, 'collapsed');
+    }
   }, []);
 
   const handleNavigateToNote = useCallback((noteId: string, anchorId?: string | null) => {
     setActiveId(noteId);
     setTargetAnchorId(anchorId || null);
     setViewMode('notes');
+    if (window.matchMedia('(max-width: 639px)').matches) {
+      setIsSidebarCollapsed(true);
+      safeSetItem(SIDEBAR_STATE_KEY, 'collapsed');
+    }
   }, []);
 
   const handleDeleteLink = useCallback(
@@ -1075,7 +1088,7 @@ export default function App() {
           >
           {/* Left Column: Navigation Sidebar */}
           {!isSidebarCollapsed && (
-            <div className="w-60 sm:w-72 md:w-80 max-w-[40vw] sm:max-w-none shrink-0 h-full min-h-0 flex flex-col border-r border-neutral-200/80 bg-white overflow-hidden">
+            <div className="absolute inset-0 z-40 w-full max-w-none sm:static sm:z-auto sm:w-72 md:w-80 shrink-0 h-full min-h-0 flex flex-col border-r border-neutral-200/80 bg-white overflow-hidden">
               <Sidebar
                 ref={sidebarRef}
                 variant="dock"

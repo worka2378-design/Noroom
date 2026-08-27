@@ -356,7 +356,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
     <div
       ref={headerRef}
       id="note-header-toolbar"
-      className="relative z-30 w-full h-11 px-2.5 sm:px-3 bg-white border-b border-neutral-200/70 select-none flex items-center justify-between gap-1.5 shrink-0 transition-colors"
+      className="relative z-30 w-full h-11 px-1.5 sm:px-3 bg-white border-b border-neutral-200/70 select-none flex items-center justify-between gap-1 sm:gap-1.5 shrink-0 transition-colors"
     >
       <input
         ref={fileInputRef}
@@ -367,7 +367,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
       />
 
       {/* ================= PRIMARY HORIZONTAL SINGLE-ROW TOOLBAR ================= */}
-      <div className="flex items-center gap-1 min-w-0 flex-1 py-1">
+      <div className="flex items-center gap-0.5 sm:gap-1 min-w-0 flex-1 py-1">
         {/* Sidebar Toggle when collapsed */}
         {isSidebarCollapsed && (
           <button
@@ -461,7 +461,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
         </div>
 
         {/* Font Family Picker */}
-        <div className="relative shrink-0">
+        <div className="relative shrink-0 hidden sm:block">
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
@@ -501,7 +501,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
         </div>
 
         {/* Font Size Picker */}
-        <div className="relative shrink-0">
+        <div className="relative shrink-0 hidden sm:block">
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
@@ -540,7 +540,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
         </div>
 
         {/* Line Height Selector */}
-        <div className="relative shrink-0">
+        <div className="relative shrink-0 hidden sm:block">
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
@@ -579,7 +579,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
           )}
         </div>
 
-        <div className="w-[1px] h-4 bg-neutral-200 mx-0.5 shrink-0" />
+        <div className="hidden sm:block w-[1px] h-4 bg-neutral-200 mx-0.5 shrink-0" />
 
         {/* Inline Character Formatting: Bold, Italic, Underline, Strikethrough */}
         <div className="flex items-center gap-0.5 shrink-0 bg-neutral-100/80 rounded-full p-0.5 border border-neutral-200/60">
@@ -626,7 +626,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onExecCommand?.('strikeThrough')}
-            className={`w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full transition-all cursor-pointer ${
+            className={`hidden sm:flex w-7 h-7 items-center justify-center rounded-full transition-all cursor-pointer ${
               activeFormats.strikethrough
                 ? 'bg-white text-neutral-950 shadow-2xs font-bold'
                 : 'text-neutral-600 hover:text-neutral-950'
@@ -638,7 +638,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
         </div>
 
         {/* Text Color Popover */}
-        <div className="relative shrink-0">
+        <div className="relative shrink-0 hidden sm:block">
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
@@ -699,7 +699,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
           )}
         </div>
 
-        <div className="w-[1px] h-4 bg-neutral-200 mx-0.5 shrink-0" />
+        <div className="hidden sm:block w-[1px] h-4 bg-neutral-200 mx-0.5 shrink-0" />
 
         {/* Alignment Dropdown */}
         <div className="relative shrink-0">
@@ -778,7 +778,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
         </div>
 
         {/* Lists */}
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div className="hidden sm:flex items-center gap-0.5 shrink-0">
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
@@ -808,7 +808,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
         </div>
 
         {/* Blockquote & Code */}
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div className="hidden sm:flex items-center gap-0.5 shrink-0">
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
@@ -831,7 +831,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
         </div>
 
         {/* Subscript & Superscript */}
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div className="hidden sm:flex items-center gap-0.5 shrink-0">
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
@@ -866,13 +866,13 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={onClearFormatting}
-          className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer shrink-0"
+          className="hidden sm:flex w-7 h-7 items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer shrink-0"
           title="Очистити форматування"
         >
           <RemoveFormatting className="w-3.5 h-3.5" />
         </button>
 
-        <div className="w-[1px] h-4 bg-neutral-200 mx-0.5 shrink-0" />
+        <div className="hidden sm:block w-[1px] h-4 bg-neutral-200 mx-0.5 shrink-0" />
 
         {/* Inserts: Link, Image, Table, Anchor */}
         <div className="flex items-center gap-0.5 shrink-0">
@@ -890,7 +890,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => fileInputRef.current?.click()}
-            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
+            className="hidden sm:flex w-7 h-7 items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
             title="Вставити фото"
           >
             <ImageIcon className="w-3.5 h-3.5" strokeWidth={2} />
@@ -900,7 +900,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onInsertTable?.(3, 3)}
-            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
+            className="hidden sm:flex w-7 h-7 items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
             title="Вставити таблицю 3x3"
           >
             <TableIcon className="w-3.5 h-3.5" strokeWidth={2} />
@@ -910,7 +910,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={onInsertAnchor}
-            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
+            className="hidden sm:flex w-7 h-7 items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
             title="Вставити якір навігації"
           >
             <Anchor className="w-3.5 h-3.5" strokeWidth={2} />
@@ -918,7 +918,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
         </div>
 
         {/* Export Dropdown (Icon Only) */}
-        <div className="relative shrink-0">
+        <div className="relative shrink-0 hidden sm:block">
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
@@ -983,7 +983,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
           onClick={onCopyText}
           title={copiedPreviewText ? 'Скопійовано!' : 'Скопіювати текст нотатки'}
           aria-label="Скопіювати текст"
-          className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
+          className="hidden sm:flex w-7 h-7 items-center justify-center rounded-full text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
         >
           <AnimatedCopyIcon isCopied={copiedPreviewText} className="w-3.5 h-3.5" />
         </button>
@@ -993,13 +993,13 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
           onClick={(e) => onTogglePin(note.id, e)}
           title={note.pinned ? 'Відкріпити' : 'Закріпити'}
           aria-label={note.pinned ? 'Відкріпити' : 'Закріпити'}
-          className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
+          className="hidden sm:flex w-7 h-7 items-center justify-center rounded-full text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
         >
           <AnimatedPinIcon isPinned={!!note.pinned} className="w-3.5 h-3.5" />
         </button>
 
         {/* Note Color Marker Popover Button (placed right next to the Pin icon) */}
-        <div className="relative">
+        <div className="relative hidden sm:block">
           <button
             type="button"
             onClick={() => toggleMenu('noteMarkerColor')}
@@ -1041,7 +1041,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
           onClick={(e) => onDeleteNote(note.id, e)}
           title="Видалити нотатку"
           aria-label="Видалити нотатку"
-          className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+          className="hidden sm:flex w-7 h-7 items-center justify-center rounded-full text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
         >
           <AnimatedTrashIcon className="w-3.5 h-3.5" />
         </button>

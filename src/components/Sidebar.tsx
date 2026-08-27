@@ -760,8 +760,8 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
         className={
           variant === 'dropdown'
             ? 'w-full h-full min-h-0 flex flex-col bg-white text-neutral-900 select-none overflow-hidden'
-            : `h-full relative flex flex-col bg-white border-r border-neutral-100 transition-all duration-200 select-none ${
-                isCollapsed ? 'w-0 opacity-0 overflow-hidden pointer-events-none' : 'w-72 sm:w-80 opacity-100'
+            : `w-full h-full relative flex flex-col bg-white border-r border-neutral-100 transition-all duration-200 select-none ${
+                isCollapsed ? 'opacity-0 overflow-hidden pointer-events-none' : 'opacity-100'
               }`
         }
       >
@@ -782,8 +782,8 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
       className={
         variant === 'dropdown'
           ? 'w-full h-full min-h-0 flex flex-col bg-white text-neutral-900 select-none overflow-hidden'
-          : `h-full relative flex flex-col bg-white border-r border-neutral-100 transition-all duration-200 select-none ${
-              isCollapsed ? 'w-0 opacity-0 overflow-hidden pointer-events-none' : 'w-72 sm:w-80 opacity-100'
+          : `w-full h-full relative flex flex-col bg-white border-r border-neutral-100 transition-all duration-200 select-none ${
+              isCollapsed ? 'opacity-0 overflow-hidden pointer-events-none' : 'opacity-100'
             }`
       }
     >
