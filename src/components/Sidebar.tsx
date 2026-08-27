@@ -787,82 +787,35 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
             }`
       }
     >
-      {/* Sidebar Top Header & Controls */}
-      <div className="py-2 px-2.5 flex items-center gap-1.5 shrink-0 border-b border-neutral-100 bg-white">
-        {/* Collapse button (dock mode) */}
-        {variant === 'dock' && (
-          <button
-            type="button"
-            onClick={onToggleCollapse}
-            title="Згорнути бічну панель (Ctrl+B)"
-            aria-label="Згорнути бічну панель"
-            className="w-7 h-7 shrink-0 flex items-center justify-center rounded-full text-neutral-700 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
-          >
-            <LogoIcon className="w-4 h-4" />
-          </button>
-        )}
+      {/* App-like Library Header */}
+      <div className="shrink-0 bg-neutral-50/90 px-3 pt-3 pb-2.5">
+        <div className="mb-2.5 flex min-h-9 items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {variant === 'dock' && (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                title="Згорнути бібліотеку (Ctrl+B)"
+                aria-label="Згорнути бібліотеку"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-900 text-white transition-colors hover:bg-black"
+              >
+                <LogoIcon className="h-4 w-4" />
+              </button>
+            )}
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-neutral-900">Бібліотека</div>
+              <div className="text-[10px] text-neutral-400">{notes.length} нотаток · {folders.length} папок</div>
+            </div>
+          </div>
 
-        {/* 1. View mode toggle icons (Notes vs Links) */}
-        <div className="flex items-center bg-neutral-100 rounded-full p-0.5 border border-neutral-200/60 shrink-0">
-          <button
-            type="button"
-            onClick={() => viewMode !== 'notes' && onToggleViewMode()}
-            title="Нотатки"
-            aria-label="Нотатки"
-            className={`w-6 h-6 flex items-center justify-center rounded-full transition-all cursor-pointer ${
-              viewMode === 'notes'
-                ? 'bg-white text-neutral-950 shadow-2xs'
-                : 'text-neutral-400 hover:text-neutral-900'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" strokeWidth={1.8} />
-          </button>
-          <button
-            type="button"
-            onClick={() => viewMode !== 'links' && onToggleViewMode()}
-            title="Посилання"
-            aria-label="Посилання"
-            className={`w-6 h-6 flex items-center justify-center rounded-full transition-all cursor-pointer ${
-              viewMode === 'links'
-                ? 'bg-white text-neutral-950 shadow-2xs'
-                : 'text-neutral-400 hover:text-neutral-900'
-            }`}
-          >
-            <Link2 className="w-3.5 h-3.5" strokeWidth={1.8} />
-          </button>
-        </div>
-
-        {/* 2. Global Search Input - placed between switches and folder creation */}
-        <div className="relative flex-1 min-w-0 flex items-center">
-          <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-2.5 pointer-events-none shrink-0" />
-          <input
-            id="sidebar-search-input"
-            type="text"
-            value={searchTerm}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Пошук..."
-            className="w-full h-7 pl-7 pr-6 bg-neutral-50 hover:bg-neutral-100/70 focus:bg-white text-xs text-neutral-900 placeholder:text-neutral-400 border border-neutral-200 focus:border-neutral-900 rounded-full outline-none transition-colors"
-          />
-          {searchTerm && (
-            <button
-              type="button"
-              onClick={() => onSearchChange('')}
-              className="absolute right-1.5 text-neutral-400 hover:text-neutral-800 w-4 h-4 flex items-center justify-center rounded-full cursor-pointer"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-
-        {/* 3. Quick Action buttons (AI, Create Folder, Create Note, Close) */}
-        <div className="flex items-center gap-1 shrink-0">
+          <div className="flex shrink-0 items-center gap-1">
           {onTriggerAi && (
             <button
               type="button"
               onClick={onTriggerAi}
               title="ШІ-помічник нотатки"
               aria-label="ШІ-помічник"
-              className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 transition-colors hover:bg-white hover:text-neutral-950"
             >
               <AnimatedAiIcon className="w-3.5 h-3.5" />
             </button>
@@ -872,7 +825,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
             onClick={() => handleCreateFolderDirectly(null)}
             title="Створити папку"
             aria-label="Створити папку"
-            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 transition-colors hover:bg-white hover:text-neutral-950"
           >
             <FolderPlus className="w-3.5 h-3.5" strokeWidth={1.75} />
           </button>
@@ -881,27 +834,67 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
             onClick={onCreateNote}
             title="Створити нотатку (Ctrl+N)"
             aria-label="Створити нотатку"
-            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-900 bg-neutral-100 hover:bg-neutral-200 border border-neutral-300/80 transition-colors cursor-pointer"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-neutral-300/80 bg-white text-neutral-900 shadow-2xs transition-colors hover:bg-neutral-100"
           >
             <Plus className="w-3.5 h-3.5" strokeWidth={2} />
           </button>
 
           {variant === 'dropdown' && (
             <>
-              <div className="w-[1px] h-3.5 bg-neutral-200 mx-0.5" />
               {onCloseDropdown && (
                 <button
                   type="button"
                   onClick={onCloseDropdown}
                   title="Закрити"
                   aria-label="Закрити"
-                  className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-400 hover:text-neutral-800 hover:bg-neutral-100 transition-colors cursor-pointer"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 transition-colors hover:bg-white hover:text-neutral-800"
                 >
                   <X className="w-3.5 h-3.5" strokeWidth={2} />
                 </button>
               )}
             </>
           )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center rounded-xl border border-neutral-200/70 bg-neutral-100 p-0.5">
+            <button
+              type="button"
+              onClick={() => viewMode !== 'notes' && onToggleViewMode()}
+              title="Нотатки"
+              aria-label="Нотатки"
+              className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all ${viewMode === 'notes' ? 'bg-white text-neutral-950 shadow-2xs' : 'text-neutral-400 hover:text-neutral-900'}`}
+            >
+              <FileText className="h-3.5 w-3.5" strokeWidth={1.8} />
+            </button>
+            <button
+              type="button"
+              onClick={() => viewMode !== 'links' && onToggleViewMode()}
+              title="Посилання"
+              aria-label="Посилання"
+              className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all ${viewMode === 'links' ? 'bg-white text-neutral-950 shadow-2xs' : 'text-neutral-400 hover:text-neutral-900'}`}
+            >
+              <Link2 className="h-3.5 w-3.5" strokeWidth={1.8} />
+            </button>
+          </div>
+
+          <div className="relative flex min-w-0 flex-1 items-center">
+            <Search className="pointer-events-none absolute left-3 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+            <input
+              id="sidebar-search-input"
+              type="text"
+              value={searchTerm}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="Пошук нотаток…"
+              className="h-9 w-full rounded-full border border-neutral-200 bg-white pl-8 pr-7 text-xs text-neutral-900 outline-none transition-colors placeholder:text-neutral-400 focus:border-neutral-900"
+            />
+            {searchTerm && (
+              <button type="button" onClick={() => onSearchChange('')} aria-label="Очистити пошук" className="absolute right-2 flex h-5 w-5 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100 hover:text-neutral-800">
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

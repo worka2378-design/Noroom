@@ -1,38 +1,39 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
+  Anchor,
+  Baseline,
   Bold,
-  Italic,
-  Underline,
-  Strikethrough,
-  RemoveFormatting,
+  Check,
+  ChevronDown,
+  Code,
+  Code2,
+  Download,
+  FileText,
   Heading1,
   Heading2,
   Heading3,
-  Pilcrow,
+  Highlighter,
+  Image as ImageIcon,
+  Italic,
+  Link2,
   List,
   ListOrdered,
-  Quote,
-  Code,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  AlignJustify,
-  Link2,
-  Image as ImageIcon,
-  Anchor,
-  Baseline,
-  Highlighter,
-  Download,
-  FileText,
-  Code2,
-  Type,
-  Table as TableIcon,
-  ChevronDown,
-  Check,
-  Subscript,
-  Superscript,
   MoveVertical,
   Palette,
+  Pilcrow,
+  Plus,
+  Quote,
+  RemoveFormatting,
+  Strikethrough,
+  Subscript,
+  Superscript,
+  Table as TableIcon,
+  Type,
+  Underline,
 } from 'lucide-react';
 import { Note, TextFormatCommand, BlockFormatCommand } from '../types';
 import { VaultMeta } from '../utils/crypto';
@@ -40,11 +41,14 @@ import { LogoIcon } from './LogoIcon';
 import {
   AnimatedCopyIcon,
   AnimatedPinIcon,
-  AnimatedBookmarkIcon,
   AnimatedTrashIcon,
   AnimatedLockIcon,
 } from './AnimatedIcons';
-import { TextColorPalette, HighlightColorPalette, NoteMarkerColorPalette } from './ColorPalettePopover';
+import {
+  TextColorPalette,
+  HighlightColorPalette,
+  NoteMarkerColorPalette,
+} from './ColorPalettePopover';
 
 export const LINE_HEIGHT_OPTIONS = [
   { label: '1.0', value: '1.0', short: '1.0' },
@@ -57,31 +61,33 @@ export const LINE_HEIGHT_OPTIONS = [
 
 export const FONT_OPTIONS = [
   { name: 'Times New Roman', value: "'Times New Roman', 'Tinos', Times, Georgia, serif", displayStyle: "'Times New Roman', 'Tinos', serif" },
-  { name: 'Inter (Sans)', value: "Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif", displayStyle: "Inter, sans-serif" },
-  { name: 'Roboto', value: "Roboto, sans-serif", displayStyle: "Roboto, sans-serif" },
+  { name: 'Inter (Sans)', value: "Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif", displayStyle: 'Inter, sans-serif' },
+  { name: 'Roboto', value: 'Roboto, sans-serif', displayStyle: 'Roboto, sans-serif' },
   { name: 'Open Sans', value: "'Open Sans', sans-serif", displayStyle: "'Open Sans', sans-serif" },
   { name: 'EB Garamond', value: "'EB Garamond', Georgia, serif", displayStyle: "'EB Garamond', serif" },
-  { name: 'Merriweather', value: "Merriweather, Georgia, serif", displayStyle: "Merriweather, serif" },
-  { name: 'Lora', value: "Lora, Georgia, serif", displayStyle: "Lora, serif" },
+  { name: 'Merriweather', value: 'Merriweather, Georgia, serif', displayStyle: "'Merriweather', serif" },
+  { name: 'Lora', value: 'Lora, Georgia, serif', displayStyle: "'Lora', serif" },
   { name: 'PT Serif', value: "'PT Serif', Georgia, serif", displayStyle: "'PT Serif', serif" },
   { name: 'Playfair Display', value: "'Playfair Display', Georgia, serif", displayStyle: "'Playfair Display', serif" },
-  { name: 'Montserrat', value: "Montserrat, sans-serif", displayStyle: "Montserrat, sans-serif" },
+  { name: 'Montserrat', value: 'Montserrat, sans-serif', displayStyle: 'Montserrat, sans-serif' },
   { name: 'Fira Code', value: "'Fira Code', ui-monospace, monospace", displayStyle: "'Fira Code', monospace" },
   { name: 'JetBrains Mono', value: "'JetBrains Mono', monospace", displayStyle: "'JetBrains Mono', monospace" },
 ];
 
-export const FONT_SIZES = [
-  '12px',
-  '13px',
-  '14px',
-  '15px',
-  '16px',
-  '18px',
-  '20px',
-  '24px',
-  '28px',
-  '32px',
-];
+export const FONT_SIZES = ['12px', '13px', '14px', '15px', '16px', '18px', '20px', '24px', '28px', '32px'];
+
+type ToolbarCategory = 'text' | 'structure' | 'insert' | 'note';
+type ToolbarMenu =
+  | 'headings'
+  | 'font'
+  | 'fontSize'
+  | 'lineHeight'
+  | 'textColor'
+  | 'highlightColor'
+  | 'align'
+  | 'export'
+  | 'noteMarkerColor'
+  | null;
 
 export interface NoteHeaderToolbarProps {
   note: Note;
@@ -114,14 +120,36 @@ export interface NoteHeaderToolbarProps {
   isTyping?: boolean;
 }
 
+interface ToolButtonProps {
+  label: string;
+  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  active?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+  className?: string;
+}
+
+const ToolButton: React.FC<ToolButtonProps> = ({ label, onClick, active, danger, children, className = '' }) => (
+  <button
+    type="button"
+    onMouseDown={(event) => event.preventDefault()}
+    onClick={onClick}
+    title={label}
+    aria-label={label}
+    className={`noroom-tool-control ${active ? 'is-active' : ''} ${danger ? 'is-danger' : ''} ${className}`}
+  >
+    {children}
+  </button>
+);
+
 export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
   note,
+  folderPath,
   isSidebarCollapsed,
   onToggleSidebar,
   copiedPreviewText,
   onCopyText,
   onTogglePin,
-  onToggleMarked,
   onDeleteNote,
   onExecCommand,
   onFormatBlock,
@@ -142,23 +170,11 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
   vaultMeta,
   onOpenVaultSetup,
 }) => {
-  const [activeMenu, setActiveMenu] = useState<
-    'headings' | 'font' | 'fontSize' | 'lineHeight' | 'textColor' | 'highlightColor' | 'align' | 'export' | 'noteMarkerColor' | null
-  >(null);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
-
-  const toggleMenu = (
-    menu: 'headings' | 'font' | 'fontSize' | 'lineHeight' | 'textColor' | 'highlightColor' | 'align' | 'export' | 'noteMarkerColor'
-  ) => {
-    setActiveMenu((prev) => (prev === menu ? null : menu));
-  };
-
-  const closeAllMenus = () => {
-    setActiveMenu(null);
-  };
-
+  const [activeCategory, setActiveCategory] = useState<ToolbarCategory>('text');
+  const [activeMenu, setActiveMenu] = useState<ToolbarMenu>(null);
+  const [currentFont, setCurrentFont] = useState('Times New Roman');
+  const [currentFontSize, setCurrentFontSize] = useState('16px');
+  const [currentLineHeight, setCurrentLineHeight] = useState('1.5');
   const [activeFormats, setActiveFormats] = useState({
     bold: false,
     italic: false,
@@ -166,7 +182,7 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
     strikethrough: false,
     insertUnorderedList: false,
     insertOrderedList: false,
-    justifyLeft: false,
+    justifyLeft: true,
     justifyCenter: false,
     justifyRight: false,
     justifyFull: false,
@@ -176,147 +192,31 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
     subscript: false,
     superscript: false,
   });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
 
-  const [currentFont, setCurrentFont] = useState<string>('Times New Roman');
-  const [currentFontSize, setCurrentFontSize] = useState<string>('16px');
-  const [currentLineHeight, setCurrentLineHeight] = useState<string>('1.5');
-
-  // Query selection format state
   const updateActiveFormats = useCallback(() => {
     try {
-      if (!document.queryCommandState) return;
-      const formatBlockVal = (document.queryCommandValue('formatBlock') || '').toLowerCase();
-      const sel = window.getSelection();
-      let isH1 = formatBlockVal === 'h1' || formatBlockVal === '<h1>';
-      let isH2 = formatBlockVal === 'h2' || formatBlockVal === '<h2>';
-      let isH3 = formatBlockVal === 'h3' || formatBlockVal === '<h3>';
-      let isBold = document.queryCommandState('bold');
-      let isItalic = document.queryCommandState('italic');
-      let isUnderline = document.queryCommandState('underline');
-      let isStrikethrough = document.queryCommandState('strikeThrough');
-      let isUnorderedList = document.queryCommandState('insertUnorderedList');
-      let isOrderedList = document.queryCommandState('insertOrderedList');
-      let isSubscript = document.queryCommandState('subscript');
-      let isSuperscript = document.queryCommandState('superscript');
-      let isJustifyLeft = document.queryCommandState('justifyLeft');
-      let isJustifyCenter = document.queryCommandState('justifyCenter');
-      let isJustifyRight = document.queryCommandState('justifyRight');
-      let isJustifyFull = document.queryCommandState('justifyFull');
-
-      if (sel && sel.rangeCount > 0) {
-        let node: Node | null = sel.anchorNode;
-        if (node && node.nodeType === Node.TEXT_NODE) node = node.parentNode;
-        if (node && (node as HTMLElement).closest) {
-          const el = node as HTMLElement;
-          const heading = el.closest('h1, h2, h3, p, blockquote, pre');
-          if (heading) {
-            const tag = heading.tagName.toLowerCase();
-            if (tag === 'h1') { isH1 = true; isH2 = false; isH3 = false; }
-            else if (tag === 'h2') { isH1 = false; isH2 = true; isH3 = false; }
-            else if (tag === 'h3') { isH1 = false; isH2 = false; isH3 = true; }
-            else if (tag === 'p') { isH1 = false; isH2 = false; isH3 = false; }
-          }
-
-          if (el.closest('b, strong')) isBold = true;
-          if (el.closest('i, em')) isItalic = true;
-          if (el.closest('u')) isUnderline = true;
-          if (el.closest('s, strike, del')) isStrikethrough = true;
-          if (el.closest('ul')) isUnorderedList = true;
-          if (el.closest('ol')) isOrderedList = true;
-          if (el.closest('sub')) isSubscript = true;
-          if (el.closest('sup')) isSuperscript = true;
-
-          const computed = window.getComputedStyle(el);
-          if (computed.fontWeight === 'bold' || parseInt(computed.fontWeight, 10) >= 600) {
-            isBold = true;
-          }
-          if (computed.fontStyle === 'italic') {
-            isItalic = true;
-          }
-          if (computed.textDecorationLine?.includes('underline')) {
-            isUnderline = true;
-          }
-          if (computed.textDecorationLine?.includes('line-through')) {
-            isStrikethrough = true;
-          }
-
-          if (computed.textAlign === 'center') {
-            isJustifyCenter = true; isJustifyLeft = false; isJustifyRight = false; isJustifyFull = false;
-          } else if (computed.textAlign === 'right') {
-            isJustifyRight = true; isJustifyLeft = false; isJustifyCenter = false; isJustifyFull = false;
-          } else if (computed.textAlign === 'justify') {
-            isJustifyFull = true; isJustifyLeft = false; isJustifyCenter = false; isJustifyRight = false;
-          } else if (computed.textAlign === 'left' || computed.textAlign === 'start') {
-            isJustifyLeft = true; isJustifyCenter = false; isJustifyRight = false; isJustifyFull = false;
-          }
-
-          const block = el.closest('p, h1, h2, h3, h4, h5, h6, blockquote, li, pre, div') as HTMLElement | null;
-
-          // 1. Font Family
-          const rawFont = (el.style.fontFamily || (block ? block.style.fontFamily : '') || computed.fontFamily || '').toLowerCase().replace(/['"]/g, '');
-          if (rawFont) {
-            const matched = FONT_OPTIONS.find((f) => {
-              const nameLow = f.name.toLowerCase().replace(/['"]/g, '');
-              const firstPart = f.value.toLowerCase().split(',')[0].replace(/['"]/g, '').trim();
-              return rawFont.includes(nameLow) || rawFont.includes(firstPart);
-            });
-            if (matched) setCurrentFont(matched.name);
-          }
-
-          // 2. Font Size
-          const inlineSize = el.style.fontSize || (block ? block.style.fontSize : '');
-          if (inlineSize && FONT_SIZES.includes(inlineSize)) {
-            setCurrentFontSize(inlineSize);
-          } else if (computed.fontSize) {
-            const pxNum = Math.round(parseFloat(computed.fontSize));
-            const pxStr = `${pxNum}px`;
-            const matched = FONT_SIZES.find((s) => s === pxStr || Math.abs(parseInt(s, 10) - pxNum) <= 1);
-            if (matched) {
-              setCurrentFontSize(matched);
-            } else if (pxNum > 0) {
-              setCurrentFontSize(pxStr);
-            }
-          }
-
-          // 3. Line Height
-          const inlineLh = el.style.lineHeight || (block ? block.style.lineHeight : '');
-          if (inlineLh) {
-            const matchedLh = LINE_HEIGHT_OPTIONS.find((l) => l.value === inlineLh);
-            if (matchedLh) setCurrentLineHeight(matchedLh.value);
-            else setCurrentLineHeight(inlineLh);
-          } else if (computed.lineHeight && computed.fontSize) {
-            const lhPx = parseFloat(computed.lineHeight);
-            const fsPx = parseFloat(computed.fontSize);
-            if (!isNaN(lhPx) && !isNaN(fsPx) && fsPx > 0) {
-              const ratio = lhPx / fsPx;
-              const matched = LINE_HEIGHT_OPTIONS.find((l) => Math.abs(parseFloat(l.value) - ratio) < 0.13);
-              if (matched) {
-                setCurrentLineHeight(matched.value);
-              }
-            }
-          }
-        }
-      }
-
+      const block = String(document.queryCommandValue('formatBlock') || '').toLowerCase().replace(/[<>]/g, '');
       setActiveFormats({
-        bold: isBold,
-        italic: isItalic,
-        underline: isUnderline,
-        strikethrough: isStrikethrough,
-        insertUnorderedList: isUnorderedList,
-        insertOrderedList: isOrderedList,
-        justifyLeft: isJustifyLeft,
-        justifyCenter: isJustifyCenter,
-        justifyRight: isJustifyRight,
-        justifyFull: isJustifyFull,
-        h1: isH1,
-        h2: isH2,
-        h3: isH3,
-        subscript: isSubscript,
-        superscript: isSuperscript,
+        bold: document.queryCommandState('bold'),
+        italic: document.queryCommandState('italic'),
+        underline: document.queryCommandState('underline'),
+        strikethrough: document.queryCommandState('strikeThrough'),
+        insertUnorderedList: document.queryCommandState('insertUnorderedList'),
+        insertOrderedList: document.queryCommandState('insertOrderedList'),
+        justifyLeft: document.queryCommandState('justifyLeft'),
+        justifyCenter: document.queryCommandState('justifyCenter'),
+        justifyRight: document.queryCommandState('justifyRight'),
+        justifyFull: document.queryCommandState('justifyFull'),
+        h1: block === 'h1',
+        h2: block === 'h2',
+        h3: block === 'h3',
+        subscript: document.queryCommandState('subscript'),
+        superscript: document.queryCommandState('superscript'),
       });
     } catch {
-      // Ignored in non-browser context
+      // Formatting state is unavailable until the editor has focus.
     }
   }, []);
 
@@ -329,735 +229,310 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
     };
   }, [updateActiveFormats]);
 
-  // Close menus when clicking outside
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (headerRef.current && !headerRef.current.contains(e.target as Node)) {
-        setActiveMenu(null);
-      }
+    const handleOutside = (event: MouseEvent) => {
+      if (headerRef.current && !headerRef.current.contains(event.target as Node)) setActiveMenu(null);
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
   }, []);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && onInsertImageFile) {
-      onInsertImageFile(file);
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+  const toggleMenu = (menu: Exclude<ToolbarMenu, null>) => {
+    setActiveMenu((current) => (current === menu ? null : menu));
   };
 
-  const isVaultProtected = !!vaultMeta;
+  const chooseCategory = (category: ToolbarCategory) => {
+    setActiveCategory(category);
+    setActiveMenu(null);
+  };
+
+  const popoverClass = 'noroom-toolbar-popover absolute top-full left-0 z-50 mt-2 rounded-2xl border border-neutral-200 bg-white p-1.5 text-xs text-neutral-800 shadow-xl';
+  const menuItemClass = 'flex w-full items-center gap-2.5 rounded-full px-3 py-2 text-left transition-colors hover:bg-neutral-100';
 
   return (
-    <div
-      ref={headerRef}
-      id="note-header-toolbar"
-      className="relative z-30 w-full h-11 px-1.5 sm:px-3 bg-white border-b border-neutral-200/70 select-none flex items-center justify-between gap-1 sm:gap-1.5 shrink-0 transition-colors"
-    >
+    <div ref={headerRef} id="note-header-toolbar" className="relative z-30 w-full shrink-0 select-none bg-white">
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
-        onChange={handleImageUpload}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) onInsertImageFile?.(file);
+          event.target.value = '';
+        }}
         className="hidden"
       />
 
-      {/* ================= PRIMARY HORIZONTAL SINGLE-ROW TOOLBAR ================= */}
-      <div className="flex items-center gap-0.5 sm:gap-1 min-w-0 flex-1 py-1">
-        {/* Sidebar Toggle when collapsed */}
-        {isSidebarCollapsed && (
-          <button
-            type="button"
+      <div className="noroom-document-bar">
+        <div className="flex min-w-0 items-center gap-2">
+          <ToolButton
+            label={isSidebarCollapsed ? 'Відкрити бібліотеку' : 'Згорнути бібліотеку'}
             onClick={onToggleSidebar}
-            title="Розгорнути бічну панель (Ctrl+B)"
-            aria-label="Розгорнути бічну панель"
-            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-700 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer mr-0.5 shrink-0"
           >
-            <LogoIcon className="w-4 h-4" />
-          </button>
-        )}
-
-        {/* Heading Style Dropdown */}
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => toggleMenu('headings')}
-            className={`h-7 px-2 flex items-center gap-1 rounded-full text-xs font-medium transition-colors cursor-pointer ${
-              activeMenu === 'headings' || activeFormats.h1 || activeFormats.h2 || activeFormats.h3
-                ? 'bg-neutral-100 text-neutral-950 font-semibold'
-                : 'text-neutral-700 hover:text-neutral-950 hover:bg-neutral-100'
-            }`}
-            title="Стиль тексту та заголовки"
-          >
-            {activeFormats.h1 ? (
-              <span className="font-bold text-xs">H1</span>
-            ) : activeFormats.h2 ? (
-              <span className="font-bold text-xs">H2</span>
-            ) : activeFormats.h3 ? (
-              <span className="font-bold text-xs">H3</span>
-            ) : (
-              <Type className="w-3.5 h-3.5" />
-            )}
-            <ChevronDown className="w-3 h-3 text-neutral-400" />
-          </button>
-
-          {activeMenu === 'headings' && (
-            <div className="absolute top-full mt-1.5 left-0 z-50 bg-white border border-neutral-200/90 rounded-2xl shadow-[0_12px_32px_rgba(0,0,0,0.12)] p-1.5 w-44 flex flex-col gap-0.5 text-xs text-neutral-800 animate-in fade-in zoom-in-95 duration-150">
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onFormatBlock?.('p');
-                  setActiveMenu(null);
-                }}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left transition-colors cursor-pointer"
-              >
-                <Pilcrow className="w-3.5 h-3.5 text-neutral-400" />
-                <span className="font-normal">Звичайний текст</span>
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onFormatBlock?.('h1');
-                  setActiveMenu(null);
-                }}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left font-bold transition-colors cursor-pointer"
-              >
-                <Heading1 className="w-3.5 h-3.5 text-neutral-500" />
-                <span>Заголовок 1</span>
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onFormatBlock?.('h2');
-                  setActiveMenu(null);
-                }}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left font-semibold transition-colors cursor-pointer"
-              >
-                <Heading2 className="w-3.5 h-3.5 text-neutral-500" />
-                <span>Заголовок 2</span>
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onFormatBlock?.('h3');
-                  setActiveMenu(null);
-                }}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left font-medium transition-colors cursor-pointer"
-              >
-                <Heading3 className="w-3.5 h-3.5 text-neutral-500" />
-                <span>Заголовок 3</span>
-              </button>
-            </div>
-          )}
+            <LogoIcon className="h-4 w-4" />
+          </ToolButton>
+          <div className="min-w-0 flex items-center gap-1.5 text-xs">
+            {folderPath && <span className="hidden truncate text-neutral-400 sm:inline">{folderPath}</span>}
+            {folderPath && <span className="hidden text-neutral-300 sm:inline">/</span>}
+            <span className="truncate font-semibold text-neutral-800">{note.title || 'Без назви'}</span>
+          </div>
         </div>
-
-        {/* Font Family Picker */}
-        <div className="relative shrink-0 hidden sm:block">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => toggleMenu('font')}
-            className={`h-7 px-2 flex items-center gap-1 rounded-full text-neutral-700 hover:text-neutral-950 font-medium text-xs transition-colors cursor-pointer ${
-              activeMenu === 'font' ? 'bg-neutral-100 font-semibold text-neutral-950' : 'hover:bg-neutral-100'
-            }`}
-            title="Шрифт тексту"
-          >
-            <span className="truncate max-w-[90px] sm:max-w-[110px]">{currentFont}</span>
-            <ChevronDown className="w-3 h-3 text-neutral-400" />
-          </button>
-
-          {activeMenu === 'font' && (
-            <div className="absolute top-full mt-1.5 left-0 z-50 bg-white border border-neutral-200/90 rounded-2xl shadow-[0_12px_32px_rgba(0,0,0,0.12)] p-1.5 w-52 max-h-72 overflow-y-auto flex flex-col gap-0.5 text-xs text-neutral-800 animate-in fade-in zoom-in-95 duration-150">
-              {FONT_OPTIONS.map((f) => (
-                <button
-                  key={f.name}
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    onApplyFontFamily?.(f.value);
-                    setCurrentFont(f.name);
-                    setActiveMenu(null);
-                  }}
-                  className={`flex items-center justify-between px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left transition-colors cursor-pointer ${
-                    currentFont === f.name ? 'bg-neutral-100 font-semibold text-neutral-950' : ''
-                  }`}
-                  style={{ fontFamily: f.value }}
-                >
-                  <span className="truncate">{f.name}</span>
-                  {currentFont === f.name && <Check className="w-3 h-3 text-neutral-900 shrink-0" />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Font Size Picker */}
-        <div className="relative shrink-0 hidden sm:block">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => toggleMenu('fontSize')}
-            className={`h-7 px-1.5 flex items-center gap-0.5 rounded-full text-neutral-700 hover:text-neutral-950 font-medium text-xs transition-colors cursor-pointer ${
-              activeMenu === 'fontSize' ? 'bg-neutral-100 font-semibold text-neutral-950' : 'hover:bg-neutral-100'
-            }`}
-            title="Розмір шрифту"
-          >
-            <span>{currentFontSize}</span>
-            <ChevronDown className="w-3 h-3 text-neutral-400" />
-          </button>
-
-          {activeMenu === 'fontSize' && (
-            <div className="absolute top-full mt-1.5 left-0 z-50 bg-white border border-neutral-200/90 rounded-2xl shadow-[0_12px_32px_rgba(0,0,0,0.12)] p-1.5 w-24 max-h-64 overflow-y-auto flex flex-col gap-0.5 text-xs text-neutral-800 animate-in fade-in zoom-in-95 duration-150">
-              {FONT_SIZES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    onApplyFontSize?.(s);
-                    setCurrentFontSize(s);
-                    setActiveMenu(null);
-                  }}
-                  className={`flex items-center justify-between px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left transition-colors cursor-pointer ${
-                    currentFontSize === s ? 'bg-neutral-100 font-semibold text-neutral-950' : ''
-                  }`}
-                >
-                  <span>{s}</span>
-                  {currentFontSize === s && <Check className="w-3 h-3 text-neutral-900 shrink-0" />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Line Height Selector */}
-        <div className="relative shrink-0 hidden 2xl:block">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => toggleMenu('lineHeight')}
-            className={`h-7 px-1.5 flex items-center gap-0.5 rounded-full text-neutral-700 hover:text-neutral-950 font-medium text-xs transition-colors cursor-pointer ${
-              activeMenu === 'lineHeight' ? 'bg-neutral-100 font-semibold text-neutral-950' : 'hover:bg-neutral-100'
-            }`}
-            title="Міжрядковий інтервал"
-          >
-            <MoveVertical className="w-3 h-3 text-neutral-500" />
-            <span className="hidden sm:inline">{currentLineHeight}</span>
-            <ChevronDown className="w-3 h-3 text-neutral-400" />
-          </button>
-
-          {activeMenu === 'lineHeight' && (
-            <div className="absolute top-full mt-1.5 left-0 z-50 bg-white border border-neutral-200/90 rounded-2xl shadow-[0_12px_32px_rgba(0,0,0,0.12)] p-1.5 w-28 flex flex-col gap-0.5 text-xs text-neutral-800 animate-in fade-in zoom-in-95 duration-150">
-              {LINE_HEIGHT_OPTIONS.map((lh) => (
-                <button
-                  key={lh.value}
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    onApplyLineHeight?.(lh.value);
-                    setCurrentLineHeight(lh.value);
-                    setActiveMenu(null);
-                  }}
-                  className={`flex items-center justify-between px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left transition-colors cursor-pointer ${
-                    currentLineHeight === lh.value ? 'bg-neutral-100 font-semibold text-neutral-950' : ''
-                  }`}
-                >
-                  <span>{lh.label}</span>
-                  {currentLineHeight === lh.value && <Check className="w-3 h-3 text-neutral-900 shrink-0" />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="hidden 2xl:block w-[1px] h-4 bg-neutral-200 mx-0.5 shrink-0" />
-
-        {/* Inline Character Formatting: Bold, Italic, Underline, Strikethrough */}
-        <div className="flex items-center gap-0.5 shrink-0 bg-neutral-100/80 rounded-full p-0.5 border border-neutral-200/60">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onExecCommand?.('bold')}
-            className={`w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full transition-all cursor-pointer ${
-              activeFormats.bold
-                ? 'bg-white text-neutral-950 shadow-2xs font-bold'
-                : 'text-neutral-600 hover:text-neutral-950'
-            }`}
-            title="Жирний (Ctrl+B)"
-          >
-            <Bold className="w-3.5 h-3.5" strokeWidth={2.2} />
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onExecCommand?.('italic')}
-            className={`w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full transition-all cursor-pointer ${
-              activeFormats.italic
-                ? 'bg-white text-neutral-950 shadow-2xs font-bold'
-                : 'text-neutral-600 hover:text-neutral-950'
-            }`}
-            title="Курсив (Ctrl+I)"
-          >
-            <Italic className="w-3.5 h-3.5" strokeWidth={2.2} />
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onExecCommand?.('underline')}
-            className={`w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full transition-all cursor-pointer ${
-              activeFormats.underline
-                ? 'bg-white text-neutral-950 shadow-2xs font-bold'
-                : 'text-neutral-600 hover:text-neutral-950'
-            }`}
-            title="Підкреслений (Ctrl+U)"
-          >
-            <Underline className="w-3.5 h-3.5" strokeWidth={2.2} />
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onExecCommand?.('strikeThrough')}
-            className={`hidden 2xl:flex w-7 h-7 items-center justify-center rounded-full transition-all cursor-pointer ${
-              activeFormats.strikethrough
-                ? 'bg-white text-neutral-950 shadow-2xs font-bold'
-                : 'text-neutral-600 hover:text-neutral-950'
-            }`}
-            title="Закреслений"
-          >
-            <Strikethrough className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
-        </div>
-
-        {/* Text Color Popover */}
-        <div className="relative shrink-0 hidden 2xl:block">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => toggleMenu('textColor')}
-            className={`w-7 h-7 flex flex-col items-center justify-center rounded-full transition-all cursor-pointer ${
-              activeMenu === 'textColor' ? 'bg-neutral-200 text-neutral-950' : 'text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100'
-            }`}
-            title="Колір тексту"
-          >
-            <Baseline className="w-3.5 h-3.5" strokeWidth={2} />
-            <span
-              className="w-3 h-0.5 rounded-full mt-[1px] transition-colors"
-              style={{ backgroundColor: textColor || '#171717' }}
-            />
-          </button>
-
-          {activeMenu === 'textColor' && (
-            <TextColorPalette
-              currentColor={textColor}
-              onSelectColor={(col) => {
-                onChangeTextColor?.(col);
-                setActiveMenu(null);
-              }}
-              onClose={() => setActiveMenu(null)}
-            />
-          )}
-        </div>
-
-        {/* Highlight Color Popover */}
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => toggleMenu('highlightColor')}
-            className={`w-7 h-7 flex flex-col items-center justify-center rounded-full transition-all cursor-pointer ${
-              activeMenu === 'highlightColor' ? 'bg-neutral-200 text-neutral-950' : 'text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100'
-            }`}
-            title="Маркер виділення"
-          >
-            <Highlighter className="w-3.5 h-3.5" strokeWidth={2} />
-            {highlightColor && highlightColor !== 'transparent' && (
-              <span
-                className="w-3 h-0.5 rounded-full mt-[1px] transition-colors"
-                style={{ backgroundColor: highlightColor }}
-              />
-            )}
-          </button>
-
-          {activeMenu === 'highlightColor' && (
-            <HighlightColorPalette
-              currentColor={highlightColor}
-              onSelectColor={(col) => {
-                onChangeHighlightColor?.(col);
-                setActiveMenu(null);
-              }}
-              onClose={() => setActiveMenu(null)}
-            />
-          )}
-        </div>
-
-        <div className="hidden 2xl:block w-[1px] h-4 bg-neutral-200 mx-0.5 shrink-0" />
-
-        {/* Alignment Dropdown */}
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => toggleMenu('align')}
-            className={`w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 transition-colors cursor-pointer ${
-              activeMenu === 'align' ? 'bg-neutral-200 text-neutral-950' : 'hover:bg-neutral-100'
-            }`}
-            title="Вирівнювання тексту"
-          >
-            {activeFormats.justifyCenter ? (
-              <AlignCenter className="w-3.5 h-3.5" strokeWidth={2} />
-            ) : activeFormats.justifyRight ? (
-              <AlignRight className="w-3.5 h-3.5" strokeWidth={2} />
-            ) : activeFormats.justifyFull ? (
-              <AlignJustify className="w-3.5 h-3.5" strokeWidth={2} />
-            ) : (
-              <AlignLeft className="w-3.5 h-3.5" strokeWidth={2} />
-            )}
-          </button>
-
-          {activeMenu === 'align' && (
-            <div className="absolute top-full mt-1.5 left-0 z-50 bg-white border border-neutral-200/90 rounded-2xl shadow-[0_12px_32px_rgba(0,0,0,0.12)] p-1.5 w-36 flex flex-col gap-0.5 text-xs text-neutral-800 animate-in fade-in zoom-in-95 duration-150">
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onExecCommand?.('justifyLeft');
-                  setActiveMenu(null);
-                }}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left transition-colors cursor-pointer"
-              >
-                <AlignLeft className="w-3.5 h-3.5 text-neutral-500" />
-                <span>По лівому</span>
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onExecCommand?.('justifyCenter');
-                  setActiveMenu(null);
-                }}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left transition-colors cursor-pointer"
-              >
-                <AlignCenter className="w-3.5 h-3.5 text-neutral-500" />
-                <span>По центру</span>
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onExecCommand?.('justifyRight');
-                  setActiveMenu(null);
-                }}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left transition-colors cursor-pointer"
-              >
-                <AlignRight className="w-3.5 h-3.5 text-neutral-500" />
-                <span>По правому</span>
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onExecCommand?.('justifyFull');
-                  setActiveMenu(null);
-                }}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left transition-colors cursor-pointer"
-              >
-                <AlignJustify className="w-3.5 h-3.5 text-neutral-500" />
-                <span>По ширині</span>
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Lists */}
-        <div className="hidden 2xl:flex items-center gap-0.5 shrink-0">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onExecCommand?.('insertUnorderedList')}
-            className={`w-7 h-7 flex items-center justify-center rounded-full transition-all cursor-pointer ${
-              activeFormats.insertUnorderedList
-                ? 'bg-neutral-200 text-neutral-950 font-bold'
-                : 'text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100'
-            }`}
-            title="Маркований список"
-          >
-            <List className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onExecCommand?.('insertOrderedList')}
-            className={`w-7 h-7 flex items-center justify-center rounded-full transition-all cursor-pointer ${
-              activeFormats.insertOrderedList
-                ? 'bg-neutral-200 text-neutral-950 font-bold'
-                : 'text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100'
-            }`}
-            title="Нумерований список"
-          >
-            <ListOrdered className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
-        </div>
-
-        {/* Blockquote & Code */}
-        <div className="hidden 2xl:flex items-center gap-0.5 shrink-0">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onFormatBlock?.('blockquote')}
-            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
-            title="Цитата"
-          >
-            <Quote className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
-
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onFormatBlock?.('pre')}
-            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
-            title="Блок коду"
-          >
-            <Code className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
-        </div>
-
-        {/* Subscript & Superscript */}
-        <div className="hidden 2xl:flex items-center gap-0.5 shrink-0">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onExecCommand?.('subscript')}
-            className={`w-7 h-7 flex items-center justify-center rounded-full transition-all cursor-pointer ${
-              activeFormats.subscript
-                ? 'bg-neutral-200 text-neutral-950 font-bold'
-                : 'text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100'
-            }`}
-            title="Підрядковий індекс (H₂O)"
-          >
-            <Subscript className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
-
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onExecCommand?.('superscript')}
-            className={`w-7 h-7 flex items-center justify-center rounded-full transition-all cursor-pointer ${
-              activeFormats.superscript
-                ? 'bg-neutral-200 text-neutral-950 font-bold'
-                : 'text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100'
-            }`}
-            title="Надрядковий індекс (x²)"
-          >
-            <Superscript className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
-        </div>
-
-        {/* Clear Formatting */}
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={onClearFormatting}
-          className="hidden 2xl:flex w-7 h-7 items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer shrink-0"
-          title="Очистити форматування"
-        >
-          <RemoveFormatting className="w-3.5 h-3.5" />
-        </button>
-
-        <div className="hidden 2xl:block w-[1px] h-4 bg-neutral-200 mx-0.5 shrink-0" />
-
-        {/* Inserts: Link, Image, Table, Anchor */}
-        <div className="flex items-center gap-0.5 shrink-0">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onOpenLinkModal}
-            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
-            title="Вставити посилання"
-          >
-            <Link2 className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
-
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => fileInputRef.current?.click()}
-            className="hidden 2xl:flex w-7 h-7 items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
-            title="Вставити фото"
-          >
-            <ImageIcon className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
-
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onInsertTable?.(3, 3)}
-            className="hidden 2xl:flex w-7 h-7 items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
-            title="Вставити таблицю 3x3"
-          >
-            <TableIcon className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
-
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onInsertAnchor}
-            className="hidden 2xl:flex w-7 h-7 items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
-            title="Вставити якір навігації"
-          >
-            <Anchor className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
-        </div>
-
-        {/* Export Dropdown (Icon Only) */}
-        <div className="relative shrink-0 hidden 2xl:block">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => toggleMenu('export')}
-            className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors cursor-pointer ${
-              activeMenu === 'export'
-                ? 'bg-neutral-200 text-neutral-950'
-                : 'text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100'
-            }`}
-            title="Експорт нотатки"
-          >
-            <Download className="w-3.5 h-3.5" strokeWidth={1.8} />
-          </button>
-
-          {activeMenu === 'export' && (
-            <div className="absolute top-full mt-1.5 left-0 z-50 bg-white border border-neutral-200/90 rounded-2xl shadow-[0_12px_32px_rgba(0,0,0,0.12)] p-1.5 w-38 flex flex-col gap-0.5 text-xs text-neutral-800 animate-in fade-in zoom-in-95 duration-150">
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onExport?.('markdown');
-                  setActiveMenu(null);
-                }}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left transition-colors cursor-pointer"
-              >
-                <FileText className="w-3.5 h-3.5 text-neutral-500" />
-                <span>Markdown (.md)</span>
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onExport?.('html');
-                  setActiveMenu(null);
-                }}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left transition-colors cursor-pointer"
-              >
-                <Code2 className="w-3.5 h-3.5 text-neutral-500" />
-                <span>HTML (.html)</span>
-              </button>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onExport?.('txt');
-                  setActiveMenu(null);
-                }}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full hover:bg-neutral-100 text-left transition-colors cursor-pointer"
-              >
-                <FileText className="w-3.5 h-3.5 text-neutral-500" />
-                <span>Text (.txt)</span>
-              </button>
-            </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="hidden text-[11px] text-neutral-400 sm:inline">Збережено</span>
+          {onOpenVaultSetup && (
+            <ToolButton
+              label={vaultMeta ? 'Захищено сейфом' : 'Налаштувати безпеку сейфу'}
+              onClick={onOpenVaultSetup}
+            >
+              <AnimatedLockIcon isLocked={!!vaultMeta} className="h-4 w-4" />
+            </ToolButton>
           )}
         </div>
       </div>
 
-      {/* ================= RIGHT: NOTE ACTION BUTTONS ================= */}
-      <div className="flex items-center gap-0.5 sm:gap-1 shrink-0 pl-1 border-l border-neutral-200/60 ml-1">
-        <button
-          type="button"
-          onClick={onCopyText}
-          title={copiedPreviewText ? 'Скопійовано!' : 'Скопіювати текст нотатки'}
-          aria-label="Скопіювати текст"
-          className="hidden 2xl:flex w-7 h-7 items-center justify-center rounded-full text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
-        >
-          <AnimatedCopyIcon isCopied={copiedPreviewText} className="w-3.5 h-3.5" />
-        </button>
-
-        <button
-          type="button"
-          onClick={(e) => onTogglePin(note.id, e)}
-          title={note.pinned ? 'Відкріпити' : 'Закріпити'}
-          aria-label={note.pinned ? 'Відкріпити' : 'Закріпити'}
-          className="hidden 2xl:flex w-7 h-7 items-center justify-center rounded-full text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
-        >
-          <AnimatedPinIcon isPinned={!!note.pinned} className="w-3.5 h-3.5" />
-        </button>
-
-        {/* Note Color Marker Popover Button (placed right next to the Pin icon) */}
-        <div className="relative hidden 2xl:block">
-          <button
-            type="button"
-            onClick={() => toggleMenu('noteMarkerColor')}
-            title={
-              note.markerColor || note.marked
-                ? 'Колір маркера нотатки'
-                : 'Маркувати нотатку кольором'
-            }
-            aria-label="Маркер нотатки"
-            className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors cursor-pointer relative ${
-              activeMenu === 'noteMarkerColor'
-                ? 'bg-neutral-200 text-neutral-950 ring-1 ring-neutral-300'
-                : 'text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100'
-            }`}
-          >
-            <Palette className="w-3.5 h-3.5" strokeWidth={1.8} />
-            {(note.markerColor || note.marked) && (
-              <span
-                className="absolute bottom-1 right-1 w-1.5 h-1.5 rounded-full border border-white shadow-2xs"
-                style={{ backgroundColor: note.markerColor || '#171717' }}
-              />
-            )}
+      <section className="noroom-editor-ribbon" aria-label="Інструменти редактора">
+        <nav className="noroom-toolbar-categories" aria-label="Категорії інструментів">
+          <button type="button" aria-pressed={activeCategory === 'text'} onClick={() => chooseCategory('text')}>
+            <Type className="h-3.5 w-3.5" />
+            <span>Текст</span>
           </button>
+          <button type="button" aria-pressed={activeCategory === 'structure'} onClick={() => chooseCategory('structure')}>
+            <List className="h-3.5 w-3.5" />
+            <span>Структура</span>
+          </button>
+          <button type="button" aria-pressed={activeCategory === 'insert'} onClick={() => chooseCategory('insert')}>
+            <Plus className="h-3.5 w-3.5" />
+            <span>Вставка</span>
+          </button>
+          <button type="button" aria-pressed={activeCategory === 'note'} onClick={() => chooseCategory('note')}>
+            <FileText className="h-3.5 w-3.5" />
+            <span>Нотатка</span>
+          </button>
+        </nav>
 
-          {activeMenu === 'noteMarkerColor' && (
-            <NoteMarkerColorPalette
-              currentColor={note.markerColor || (note.marked ? '#171717' : null)}
-              onSelectColor={(color) => {
-                onChangeNoteMarkerColor?.(color);
-                setActiveMenu(null);
-              }}
-              onClose={() => setActiveMenu(null)}
-            />
+        <div className="noroom-toolbar-tools" aria-live="polite">
+          {activeCategory === 'text' && (
+            <>
+              <div className="noroom-toolbar-group">
+                <div className="flex items-center gap-1">
+                  <div className="relative">
+                    <ToolButton label="Стиль тексту" active={activeMenu === 'headings'} onClick={() => toggleMenu('headings')} className="is-wide">
+                      {activeFormats.h1 ? <span>H1</span> : activeFormats.h2 ? <span>H2</span> : activeFormats.h3 ? <span>H3</span> : <Type className="h-4 w-4" />}
+                      <ChevronDown className="h-3 w-3 text-neutral-400" />
+                    </ToolButton>
+                    {activeMenu === 'headings' && (
+                      <div className={`${popoverClass} w-48`}>
+                        {[
+                          ['p', 'Звичайний текст', Pilcrow],
+                          ['h1', 'Заголовок 1', Heading1],
+                          ['h2', 'Заголовок 2', Heading2],
+                          ['h3', 'Заголовок 3', Heading3],
+                        ].map(([tag, label, Icon]) => (
+                          <button key={String(tag)} type="button" className={menuItemClass} onMouseDown={(event) => event.preventDefault()} onClick={() => { onFormatBlock?.(tag as BlockFormatCommand); setActiveMenu(null); }}>
+                            {React.createElement(Icon as React.ElementType, { className: 'h-4 w-4 text-neutral-500' })}
+                            <span>{String(label)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <ToolButton label="Шрифт" active={activeMenu === 'font'} onClick={() => toggleMenu('font')} className="is-wide">
+                      <span className="max-w-28 truncate">{currentFont}</span>
+                      <ChevronDown className="h-3 w-3 text-neutral-400" />
+                    </ToolButton>
+                    {activeMenu === 'font' && (
+                      <div className={`${popoverClass} max-h-72 w-56 overflow-y-auto`}>
+                        {FONT_OPTIONS.map((font) => (
+                          <button key={font.name} type="button" className={`${menuItemClass} justify-between`} style={{ fontFamily: font.value }} onMouseDown={(event) => event.preventDefault()} onClick={() => { onApplyFontFamily?.(font.value); setCurrentFont(font.name); setActiveMenu(null); }}>
+                            <span className="truncate">{font.name}</span>
+                            {currentFont === font.name && <Check className="h-3.5 w-3.5" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <ToolButton label="Розмір шрифту" active={activeMenu === 'fontSize'} onClick={() => toggleMenu('fontSize')} className="is-wide is-compact">
+                      <span>{currentFontSize}</span>
+                      <ChevronDown className="h-3 w-3 text-neutral-400" />
+                    </ToolButton>
+                    {activeMenu === 'fontSize' && (
+                      <div className={`${popoverClass} max-h-64 w-28 overflow-y-auto`}>
+                        {FONT_SIZES.map((size) => (
+                          <button key={size} type="button" className={`${menuItemClass} justify-between`} onMouseDown={(event) => event.preventDefault()} onClick={() => { onApplyFontSize?.(size); setCurrentFontSize(size); setActiveMenu(null); }}>
+                            <span>{size}</span>
+                            {currentFontSize === size && <Check className="h-3.5 w-3.5" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <ToolButton label="Міжрядковий інтервал" active={activeMenu === 'lineHeight'} onClick={() => toggleMenu('lineHeight')} className="is-wide is-compact">
+                      <MoveVertical className="h-3.5 w-3.5" />
+                      <span>{currentLineHeight}</span>
+                      <ChevronDown className="h-3 w-3 text-neutral-400" />
+                    </ToolButton>
+                    {activeMenu === 'lineHeight' && (
+                      <div className={`${popoverClass} w-28`}>
+                        {LINE_HEIGHT_OPTIONS.map((height) => (
+                          <button key={height.value} type="button" className={`${menuItemClass} justify-between`} onMouseDown={(event) => event.preventDefault()} onClick={() => { onApplyLineHeight?.(height.value); setCurrentLineHeight(height.value); setActiveMenu(null); }}>
+                            <span>{height.label}</span>
+                            {currentLineHeight === height.value && <Check className="h-3.5 w-3.5" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <span>Шрифт</span>
+              </div>
+
+              <div className="noroom-toolbar-group">
+                <div className="flex items-center gap-1">
+                  <ToolButton label="Жирний (Ctrl+B)" active={activeFormats.bold} onClick={() => onExecCommand?.('bold')}><Bold className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Курсив (Ctrl+I)" active={activeFormats.italic} onClick={() => onExecCommand?.('italic')}><Italic className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Підкреслений (Ctrl+U)" active={activeFormats.underline} onClick={() => onExecCommand?.('underline')}><Underline className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Закреслений" active={activeFormats.strikethrough} onClick={() => onExecCommand?.('strikeThrough')}><Strikethrough className="h-4 w-4" /></ToolButton>
+                </div>
+                <span>Накреслення</span>
+              </div>
+
+              <div className="noroom-toolbar-group">
+                <div className="flex items-center gap-1">
+                  <div className="relative">
+                    <ToolButton label="Колір тексту" active={activeMenu === 'textColor'} onClick={() => toggleMenu('textColor')}>
+                      <span className="flex flex-col items-center"><Baseline className="h-4 w-4" /><span className="h-0.5 w-3 rounded-full" style={{ backgroundColor: textColor }} /></span>
+                    </ToolButton>
+                    {activeMenu === 'textColor' && <TextColorPalette currentColor={textColor} onSelectColor={(color) => { onChangeTextColor?.(color); setActiveMenu(null); }} onClose={() => setActiveMenu(null)} />}
+                  </div>
+                  <div className="relative">
+                    <ToolButton label="Маркер" active={activeMenu === 'highlightColor'} onClick={() => toggleMenu('highlightColor')}>
+                      <span className="flex flex-col items-center"><Highlighter className="h-4 w-4" />{highlightColor !== 'transparent' && <span className="h-0.5 w-3 rounded-full" style={{ backgroundColor: highlightColor }} />}</span>
+                    </ToolButton>
+                    {activeMenu === 'highlightColor' && <HighlightColorPalette currentColor={highlightColor} onSelectColor={(color) => { onChangeHighlightColor?.(color); setActiveMenu(null); }} onClose={() => setActiveMenu(null)} />}
+                  </div>
+                </div>
+                <span>Колір</span>
+              </div>
+            </>
+          )}
+
+          {activeCategory === 'structure' && (
+            <>
+              <div className="noroom-toolbar-group">
+                <div className="flex items-center gap-1">
+                  <div className="relative">
+                    <ToolButton label="Вирівнювання" active={activeMenu === 'align'} onClick={() => toggleMenu('align')} className="is-wide is-compact">
+                      {activeFormats.justifyCenter ? <AlignCenter className="h-4 w-4" /> : activeFormats.justifyRight ? <AlignRight className="h-4 w-4" /> : activeFormats.justifyFull ? <AlignJustify className="h-4 w-4" /> : <AlignLeft className="h-4 w-4" />}
+                      <span>Вирівнювання</span><ChevronDown className="h-3 w-3 text-neutral-400" />
+                    </ToolButton>
+                    {activeMenu === 'align' && (
+                      <div className={`${popoverClass} w-40`}>
+                        {[
+                          ['justifyLeft', 'По лівому', AlignLeft],
+                          ['justifyCenter', 'По центру', AlignCenter],
+                          ['justifyRight', 'По правому', AlignRight],
+                          ['justifyFull', 'По ширині', AlignJustify],
+                        ].map(([command, label, Icon]) => (
+                          <button key={String(command)} type="button" className={menuItemClass} onMouseDown={(event) => event.preventDefault()} onClick={() => { onExecCommand?.(command as TextFormatCommand); setActiveMenu(null); }}>
+                            {React.createElement(Icon as React.ElementType, { className: 'h-4 w-4 text-neutral-500' })}<span>{String(label)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <span>Абзац</span>
+              </div>
+
+              <div className="noroom-toolbar-group">
+                <div className="flex items-center gap-1">
+                  <ToolButton label="Маркований список" active={activeFormats.insertUnorderedList} onClick={() => onExecCommand?.('insertUnorderedList')}><List className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Нумерований список" active={activeFormats.insertOrderedList} onClick={() => onExecCommand?.('insertOrderedList')}><ListOrdered className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Цитата" onClick={() => onFormatBlock?.('blockquote')}><Quote className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Блок коду" onClick={() => onFormatBlock?.('pre')}><Code className="h-4 w-4" /></ToolButton>
+                </div>
+                <span>Списки й блоки</span>
+              </div>
+
+              <div className="noroom-toolbar-group">
+                <div className="flex items-center gap-1">
+                  <ToolButton label="Підрядковий індекс" active={activeFormats.subscript} onClick={() => onExecCommand?.('subscript')}><Subscript className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Надрядковий індекс" active={activeFormats.superscript} onClick={() => onExecCommand?.('superscript')}><Superscript className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Очистити форматування" onClick={onClearFormatting}><RemoveFormatting className="h-4 w-4" /></ToolButton>
+                </div>
+                <span>Додатково</span>
+              </div>
+            </>
+          )}
+
+          {activeCategory === 'insert' && (
+            <>
+              <div className="noroom-toolbar-group">
+                <div className="flex items-center gap-1">
+                  <ToolButton label="Вставити посилання" onClick={onOpenLinkModal}><Link2 className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Вставити фото" onClick={() => fileInputRef.current?.click()}><ImageIcon className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Вставити таблицю 3×3" onClick={() => onInsertTable?.(3, 3)}><TableIcon className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Вставити якір навігації" onClick={onInsertAnchor}><Anchor className="h-4 w-4" /></ToolButton>
+                </div>
+                <span>Об’єкти</span>
+              </div>
+
+              <div className="noroom-toolbar-group">
+                <div className="flex items-center gap-1">
+                  <ToolButton label="Заголовок 1" onClick={() => onFormatBlock?.('h1')}><Heading1 className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Заголовок 2" onClick={() => onFormatBlock?.('h2')}><Heading2 className="h-4 w-4" /></ToolButton>
+                  <ToolButton label="Звичайний абзац" onClick={() => onFormatBlock?.('p')}><Pilcrow className="h-4 w-4" /></ToolButton>
+                </div>
+                <span>Блоки</span>
+              </div>
+
+              <div className="noroom-toolbar-group">
+                <div className="relative">
+                  <ToolButton label="Експорт" active={activeMenu === 'export'} onClick={() => toggleMenu('export')} className="is-wide is-compact"><Download className="h-4 w-4" /><span>Експорт</span><ChevronDown className="h-3 w-3 text-neutral-400" /></ToolButton>
+                  {activeMenu === 'export' && (
+                    <div className={`${popoverClass} w-44`}>
+                      <button type="button" className={menuItemClass} onMouseDown={(event) => event.preventDefault()} onClick={() => { onExport?.('markdown'); setActiveMenu(null); }}><FileText className="h-4 w-4" /><span>Markdown (.md)</span></button>
+                      <button type="button" className={menuItemClass} onMouseDown={(event) => event.preventDefault()} onClick={() => { onExport?.('html'); setActiveMenu(null); }}><Code2 className="h-4 w-4" /><span>HTML (.html)</span></button>
+                      <button type="button" className={menuItemClass} onMouseDown={(event) => event.preventDefault()} onClick={() => { onExport?.('txt'); setActiveMenu(null); }}><FileText className="h-4 w-4" /><span>Text (.txt)</span></button>
+                    </div>
+                  )}
+                </div>
+                <span>Файл</span>
+              </div>
+            </>
+          )}
+
+          {activeCategory === 'note' && (
+            <>
+              <div className="noroom-toolbar-group">
+                <div className="flex items-center gap-1">
+                  <ToolButton label={copiedPreviewText ? 'Скопійовано' : 'Скопіювати текст'} active={copiedPreviewText} onClick={onCopyText}><AnimatedCopyIcon isCopied={copiedPreviewText} className="h-4 w-4" /></ToolButton>
+                  <ToolButton label={note.pinned ? 'Відкріпити' : 'Закріпити'} active={!!note.pinned} onClick={(event) => onTogglePin(note.id, event)}><AnimatedPinIcon isPinned={!!note.pinned} className="h-4 w-4" /></ToolButton>
+                  <div className="relative">
+                    <ToolButton label="Маркер нотатки" active={activeMenu === 'noteMarkerColor'} onClick={() => toggleMenu('noteMarkerColor')}><Palette className="h-4 w-4" /></ToolButton>
+                    {activeMenu === 'noteMarkerColor' && <NoteMarkerColorPalette currentColor={note.markerColor || (note.marked ? '#171717' : null)} onSelectColor={(color) => { onChangeNoteMarkerColor?.(color); setActiveMenu(null); }} onClose={() => setActiveMenu(null)} />}
+                  </div>
+                  <ToolButton label="Видалити нотатку" danger onClick={(event) => onDeleteNote(note.id, event)}><AnimatedTrashIcon className="h-4 w-4" /></ToolButton>
+                </div>
+                <span>Дії</span>
+              </div>
+
+              <div className="noroom-toolbar-group">
+                <div className="flex items-center gap-1">
+                  {onOpenVaultSetup && <ToolButton label={vaultMeta ? 'Налаштування сейфу' : 'Захистити сейф'} onClick={onOpenVaultSetup}><AnimatedLockIcon isLocked={!!vaultMeta} className="h-4 w-4" /></ToolButton>}
+                </div>
+                <span>Безпека</span>
+              </div>
+            </>
           )}
         </div>
-
-        <button
-          type="button"
-          onClick={(e) => onDeleteNote(note.id, e)}
-          title="Видалити нотатку"
-          aria-label="Видалити нотатку"
-          className="hidden 2xl:flex w-7 h-7 items-center justify-center rounded-full text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-        >
-          <AnimatedTrashIcon className="w-3.5 h-3.5" />
-        </button>
-
-        {onOpenVaultSetup && (
-          <button
-            type="button"
-            onClick={onOpenVaultSetup}
-            title={isVaultProtected ? 'Захищено сейфом' : 'Налаштувати безпеку сейфу'}
-            aria-label="Безпека сейфу"
-            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
-          >
-            <AnimatedLockIcon isLocked={isVaultProtected} className="w-3.5 h-3.5" />
-          </button>
-        )}
-      </div>
+      </section>
     </div>
   );
 };

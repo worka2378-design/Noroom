@@ -1076,19 +1076,26 @@ export default function App() {
   };
 
   return (
-    <div className="relative w-full h-screen flex flex-col bg-neutral-100/70 text-neutral-900 overflow-hidden font-sans">
+    <div className="relative w-full h-screen flex flex-col bg-[#f5f5f3] text-neutral-900 overflow-hidden font-sans">
       {/* ================= PRIMARY WORKSPACE CONTAINER (MAIN VIEW AND NOTE EDITING SURFACE) ================= */}
-      <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center p-2 sm:p-3 md:p-3.5 overflow-hidden">
+      <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center p-0 sm:p-3 md:p-3.5 overflow-hidden">
         <div className="relative w-full max-w-[1600px] h-full max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-1.5rem)] flex flex-col min-h-0">
           {/* Main Card Container */}
           <div
-            className={`relative z-10 w-full flex-1 min-h-0 bg-white rounded-3xl sm:rounded-[28px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.06)] border border-neutral-200/90 overflow-hidden flex flex-row ${
+            className={`relative z-10 w-full flex-1 min-h-0 bg-white rounded-none sm:rounded-[22px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.06)] border-0 sm:border border-neutral-200/90 overflow-hidden flex flex-row ${
               isVaultLocked && vaultMeta ? 'pointer-events-none' : ''
             }`}
           >
           {/* Left Column: Navigation Sidebar */}
           {!isSidebarCollapsed && (
-            <div className="absolute inset-0 z-40 w-full max-w-none sm:static sm:z-auto sm:w-72 md:w-80 shrink-0 h-full min-h-0 flex flex-col border-r border-neutral-200/80 bg-white overflow-hidden">
+            <>
+              <button
+                type="button"
+                aria-label="Закрити бібліотеку"
+                onClick={toggleSidebar}
+                className="absolute inset-0 z-40 bg-black/20 backdrop-blur-[1px] sm:hidden"
+              />
+              <div className="absolute inset-y-0 left-0 z-50 w-[86%] max-w-[340px] sm:static sm:z-auto sm:w-72 md:w-80 shrink-0 h-full min-h-0 flex flex-col border-r border-neutral-200/80 bg-white overflow-hidden shadow-2xl sm:shadow-none">
               <Sidebar
                 ref={sidebarRef}
                 variant="dock"
@@ -1126,7 +1133,8 @@ export default function App() {
                 onCreateNoteWithContent={handleCreateNoteWithContent}
                 onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
               />
-            </div>
+              </div>
+            </>
           )}
 
           {/* Right Column: Note Document Preview / Main Editor Container */}
