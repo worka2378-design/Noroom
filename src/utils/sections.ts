@@ -63,8 +63,32 @@ export function createAnchorElementHtml(anchorId: string, title: string): string
 }
 
 /**
+ * Ensures all headings in a container have deterministic, stable IDs and data-anchor-id attributes.
+ * Returns the count of newly tagged headings.
+ */
+export function ensureHeadingAnchorIds(container: Element): number {
+  let count = 0;
+  const headings = Array.from(container.querySelectorAll('h1, h2, h3, h4, h5, h6'));
+  headings.forEach((heading, idx) => {
+    const existingId = heading.getAttribute('data-anchor-id') || heading.id;
+    if (!existingId) {
+      const newId = `heading-${idx}`;
+      heading.id = newId;
+      heading.setAttribute('data-anchor-id', newId);
+      count++;
+    } else if (!heading.id) {
+      heading.id = existingId;
+    } else if (!heading.getAttribute('data-anchor-id')) {
+      heading.setAttribute('data-anchor-id', heading.id);
+    }
+  });
+  return count;
+}
+
+/**
  * Strips embedded anchor icons, badges, and horizontal dividers from text content
  * so the editor document contains only clean text, while preserving IDs for navigation.
+ * Also ensures all headings have deterministic, stable IDs.
  */
 export function cleanLegacyAnchorDividers(html: string): string {
   if (!html) return '';
@@ -83,11 +107,15 @@ export function cleanLegacyAnchorDividers(html: string): string {
     if (parent) {
       if (anchorId && !parent.getAttribute('data-anchor-id') && !parent.getAttribute('id')) {
         parent.setAttribute('data-anchor-id', anchorId);
+        parent.setAttribute('id', anchorId);
         if (label) parent.setAttribute('data-anchor-title', label);
       }
     }
     anchorEl.remove();
   });
+
+  // Assign deterministic, sequential IDs to headings if missing using centralized helper
+  ensureHeadingAnchorIds(temp);
 
   return temp.innerHTML;
 }
@@ -109,16 +137,8 @@ export function autoPartitionNoteWithAnchors(
 
   let addedCount = 0;
 
-  // 1. Tag headings with anchor IDs
-  const headings = Array.from(temp.querySelectorAll('h1, h2, h3'));
-  headings.forEach((heading, idx) => {
-    if (!heading.id && !heading.getAttribute('data-anchor-id')) {
-      const anchorId = 'anchor-' + Math.random().toString(36).substring(2, 9);
-      heading.id = anchorId;
-      heading.setAttribute('data-anchor-id', anchorId);
-      addedCount++;
-    }
-  });
+  // 1. Tag headings with anchor IDs using centralized helper
+  addedCount += ensureHeadingAnchorIds(temp);
 
   // 2. Partition by paragraphs if longer
   const blocks = Array.from(temp.children).filter((el) => {
@@ -177,12 +197,13 @@ export function extractNoteSections(content: string, noteTitle = ''): NoteSectio
   const temp = document.createElement('div');
   temp.innerHTML = content;
 
+  // Ensure all headings have synced IDs in temp DOM before traversal
+  ensureHeadingAnchorIds(temp);
+
   // Single unified in-order traversal of headings and explicit anchor markers
   const candidateElements = Array.from(
     temp.querySelectorAll('h1, h2, h3, h4, h5, h6, [data-anchor-id], [data-anchor-title], .note-anchor-marker')
   ) as HTMLElement[];
-
-  let headingIdx = 0;
 
   for (const el of candidateElements) {
     // Avoid processing elements nested inside another candidate element
@@ -195,7 +216,9 @@ export function extractNoteSections(content: string, noteTitle = ''): NoteSectio
     const rawText = (el.textContent || '').trim();
     const title = (customTitle || (isHeading ? rawText : generateSectionTitleFromText(rawText))).trim();
 
-    if (!title) continue;
+    if (!title) {
+      continue;
+    }
 
     const normalizedTitle = title.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
     // If duplicate title of an already added section or note title, skip
@@ -205,7 +228,7 @@ export function extractNoteSections(content: string, noteTitle = ''): NoteSectio
 
     let anchorId = el.getAttribute('data-anchor-id') || el.id;
     if (!anchorId) {
-      anchorId = isHeading ? `heading-${headingIdx++}` : `anchor-${Math.random().toString(36).substring(2, 9)}`;
+      anchorId = `anchor-${Math.random().toString(36).substring(2, 9)}`;
     }
 
     if (seenIds.has(anchorId)) {

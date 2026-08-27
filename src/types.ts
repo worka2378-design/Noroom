@@ -18,6 +18,7 @@ export interface Note {
   updated: number;
   pinned: boolean;
   marked: boolean;
+  markerColor?: string | null;
   folderId?: string | null;
 }
 
@@ -31,8 +32,30 @@ export type TextFormatCommand =
   | 'justifyLeft'
   | 'justifyCenter'
   | 'justifyRight'
+  | 'justifyFull'
+  | 'subscript'
+  | 'superscript'
   | 'removeFormat'
   | 'undo'
   | 'redo';
 
-export type BlockFormatCommand = 'H1' | 'H2' | 'H3' | 'P' | 'BLOCKQUOTE' | 'PRE';
+export type BlockFormatCommand =
+  | 'H1'
+  | 'H2'
+  | 'H3'
+  | 'P'
+  | 'BLOCKQUOTE'
+  | 'PRE'
+  | 'h1'
+  | 'h2'
+  | 'h3'
+  | 'p'
+  | 'blockquote'
+  | 'pre';
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+}

@@ -1,10 +1,16 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback, useImperativeHandle, forwardRef } from 'react';
-import { FileText, Plus, Anchor, Check, Info } from 'lucide-react';
+import { FileText, Plus, Anchor, Check } from 'lucide-react';
 import { Note, TextFormatCommand, BlockFormatCommand } from '../types';
 import { TableEditorManager } from './TableEditorManager';
 import { AnchorVerticalRail } from './AnchorNavigator';
-import { formatNoteDate, countWords, countCharacters } from '../utils/storage';
-import { createGraphicLinkHtml, autoConvertUrlsToRichLinks } from '../utils/links';
+import { countWords, countCharacters } from '../utils/storage';
+import {
+  createGraphicLinkHtml,
+  autoConvertUrlsToRichLinks,
+  extractDomain,
+  getFaviconUrl,
+  formatUrlTitle,
+} from '../utils/links';
 import { autoPartitionNoteWithAnchors, cleanLegacyAnchorDividers, extractNoteSections } from '../utils/sections';
 import { FloatingScrollbar } from './FloatingScrollbar';
 
@@ -22,6 +28,9 @@ export interface EditorPaneHandle {
   exportNote: (format: 'markdown' | 'html' | 'txt') => void;
   changeTextColor: (color: string) => void;
   changeHighlightColor: (color: string) => void;
+  insertLink: (url: string) => void;
+  insertPlainText: (text: string) => void;
+  insertHtml: (html: string) => void;
 }
 
 export interface EditorPaneProps {
@@ -37,6 +46,7 @@ export interface EditorPaneProps {
   isSidebarCollapsed?: boolean;
   onTyping?: () => void;
   onSelectionChange?: (hasSelection: boolean) => void;
+  variant?: 'main' | 'deck';
 }
 
 export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
@@ -52,7 +62,9 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
   isSidebarCollapsed = false,
   onTyping,
   onSelectionChange,
+  variant = 'main',
 }, ref) => {
+  const isDeck = variant === 'deck';
   const contentRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const documentFrameRef = useRef<HTMLDivElement>(null);
@@ -167,17 +179,26 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
     }, 1500);
   };
 
+  const savedRangeRef = useRef<Range | null>(null);
+
   useEffect(() => {
     const handleSelectionChange = () => {
       updateActiveHeading();
 
-      // Check if user has selected text in editor
+      // Check if user has selected text in editor and save range
       const sel = window.getSelection();
-      if (sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.toString().trim().length > 0) {
-        const node = sel.anchorNode;
-        if (node && contentRef.current && contentRef.current.contains(node)) {
-          onSelectionChange?.(true);
-          return;
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        if (contentRef.current && contentRef.current.contains(range.commonAncestorContainer)) {
+          savedRangeRef.current = range.cloneRange();
+        }
+
+        if (!sel.isCollapsed && sel.toString().trim().length > 0) {
+          const node = sel.anchorNode;
+          if (node && contentRef.current && contentRef.current.contains(node)) {
+            onSelectionChange?.(true);
+            return;
+          }
         }
       }
       onSelectionChange?.(false);
@@ -198,25 +219,17 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
     return extractNoteSections(note.content, note.title);
   }, [note?.content, note?.title]);
 
-  const scrollToSection = (sectionId: string, index?: number) => {
-    const frame = document.getElementById('editor-document-frame') as HTMLElement | null;
+  const findSectionElement = (sectionId: string, index?: number): HTMLElement | null => {
     const editor = contentRef.current;
+    if (!editor) return null;
 
     if (sectionId === 'section-root' || sectionId === 'note-top' || index === 0) {
-      if (frame) {
-        frame.scrollTo({ top: 0, behavior: 'smooth' });
-      } else {
-        titleInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-      setActiveSectionId('section-root');
-      return;
+      return titleInputRef.current || editor;
     }
-
-    if (!editor || !frame) return;
 
     let targetEl: HTMLElement | null = null;
 
-    // 1. By ID selector
+    // 1. By direct ID selector
     try {
       targetEl = editor.querySelector(`#${CSS.escape(sectionId)}`) as HTMLElement | null;
     } catch {
@@ -232,54 +245,90 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
       }
     }
 
-    // 3. By matching section title text
-    const sectionObj = sections.find((s) => s.id === sectionId) || (index !== undefined ? sections[index] : null);
-    const targetTitle = sectionObj?.title?.trim().toLowerCase();
-
-    if (!targetEl && targetTitle) {
-      const candidates = Array.from(
-        editor.querySelectorAll('h1, h2, h3, h4, h5, h6, [data-anchor-title], p, div, li, blockquote')
+    // 3. If sectionId is "heading-N" (e.g. heading-0, heading-1)
+    if (!targetEl && /^heading-\d+$/i.test(sectionId)) {
+      const matchIdx = parseInt(sectionId.replace(/^heading-/i, ''), 10);
+      const allHeadings = Array.from(
+        editor.querySelectorAll('h1, h2, h3, h4, h5, h6')
       ) as HTMLElement[];
+      if (!isNaN(matchIdx) && allHeadings[matchIdx]) {
+        targetEl = allHeadings[matchIdx];
+      }
+    }
 
-      for (const el of candidates) {
-        const titleAttr = (el.getAttribute('data-anchor-title') || '').trim().toLowerCase();
-        const text = (el.textContent || '').trim().toLowerCase();
-        if (
-          titleAttr === targetTitle ||
-          text === targetTitle ||
-          (text.length < 150 && (text.startsWith(targetTitle) || targetTitle.startsWith(text)))
-        ) {
-          targetEl = el;
-          break;
+    // 4. By matching section title from sections array
+    if (!targetEl) {
+      const sectionObj = sections.find((s) => s.id === sectionId) || (index !== undefined ? sections[index] : null);
+      if (sectionObj && sectionObj.title) {
+        const targetTitle = sectionObj.title.trim().toLowerCase();
+        const candidateElements = Array.from(
+          editor.querySelectorAll('h1, h2, h3, h4, h5, h6, [data-anchor-title], p, div')
+        ) as HTMLElement[];
+
+        for (const el of candidateElements) {
+          const customTitle = (el.getAttribute('data-anchor-title') || '').trim().toLowerCase();
+          const text = (el.textContent || '').trim().toLowerCase();
+          if (
+            customTitle === targetTitle ||
+            text === targetTitle ||
+            (text.length < 150 && (text.startsWith(targetTitle) || targetTitle.startsWith(text)))
+          ) {
+            targetEl = el;
+            break;
+          }
         }
       }
     }
 
-    // 4. By sequential index among headings / anchored blocks
+    // 5. By sequential index among headings / anchors
     if (!targetEl && index !== undefined && index > 0) {
-      const headingsAndAnchors = Array.from(
-        editor.querySelectorAll('h1, h2, h3, h4, [data-anchor-id], [id^="anchor-"]')
+      const allHeadingsAndAnchors = Array.from(
+        editor.querySelectorAll('h1, h2, h3, h4, h5, h6, [data-anchor-id], [id^="anchor-"], [id^="heading-"]')
       ) as HTMLElement[];
-      if (headingsAndAnchors[index - 1]) {
-        targetEl = headingsAndAnchors[index - 1];
-      } else {
-        const blocks = (Array.from(editor.children) as HTMLElement[]).filter((c) => (c.textContent || '').trim().length > 0);
-        if (blocks[index]) {
-          targetEl = blocks[index];
-        }
+      if (allHeadingsAndAnchors[index - 1]) {
+        targetEl = allHeadingsAndAnchors[index - 1];
       }
     }
+
+    return targetEl;
+  };
+
+  const scrollToSection = (sectionId: string, index?: number) => {
+    const frame = documentFrameRef.current || (document.getElementById(isDeck ? 'deck-editor-document-frame' : 'editor-document-frame') as HTMLElement | null);
+    const editor = contentRef.current;
+
+    if (sectionId === 'section-root' || sectionId === 'note-top' || index === 0) {
+      if (frame) {
+        frame.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        titleInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      setActiveSectionId('section-root');
+      return;
+    }
+
+    if (!editor || !frame) return;
+
+    const targetEl = findSectionElement(sectionId, index);
 
     if (targetEl) {
       const frameRect = frame.getBoundingClientRect();
       const targetRect = targetEl.getBoundingClientRect();
       const scrollOffset = targetRect.top - frameRect.top;
-      const targetScrollTop = frame.scrollTop + scrollOffset - 24;
+      const targetScrollTop = frame.scrollTop + scrollOffset - (isDeck ? 20 : 36);
 
       frame.scrollTo({
         top: Math.max(0, targetScrollTop),
         behavior: 'smooth',
       });
+
+      // Pulse animation highlight on navigated anchor
+      targetEl.classList.remove('anchor-target-pulse');
+      void targetEl.offsetWidth;
+      targetEl.classList.add('anchor-target-pulse');
+      setTimeout(() => {
+        targetEl?.classList.remove('anchor-target-pulse');
+      }, 1900);
 
       setActiveSectionId(sectionId);
     }
@@ -303,37 +352,13 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
     }
 
     const frameRect = frame.getBoundingClientRect();
-    const threshold = 180; // offset line from top of viewport
+    const threshold = isDeck ? 120 : 180; // offset line from top of viewport
 
     let currentActiveId = sections[0].id;
 
     for (let i = 1; i < sections.length; i++) {
       const section = sections[i];
-      let el: HTMLElement | null = null;
-
-      try {
-        el = editor.querySelector(`#${CSS.escape(section.id)}, [data-anchor-id="${CSS.escape(section.id)}"]`) as HTMLElement | null;
-      } catch {
-        el = null;
-      }
-
-      if (!el && section.title) {
-        const targetTitle = section.title.trim().toLowerCase();
-        const candidates = Array.from(editor.querySelectorAll('h1, h2, h3, h4, h5, [data-anchor-title], p')) as HTMLElement[];
-        el = candidates.find((h) => {
-          const t = (h.getAttribute('data-anchor-title') || h.textContent || '').trim().toLowerCase();
-          return t === targetTitle || (t.length < 120 && (t.startsWith(targetTitle) || targetTitle.startsWith(t)));
-        }) || null;
-      }
-
-      if (!el) {
-        const headingsAndAnchors = Array.from(
-          editor.querySelectorAll('h1, h2, h3, h4, [data-anchor-id], [id^="anchor-"]')
-        ) as HTMLElement[];
-        if (headingsAndAnchors[i - 1]) {
-          el = headingsAndAnchors[i - 1];
-        }
-      }
+      const el = findSectionElement(section.id, i);
 
       if (el) {
         const rect = el.getBoundingClientRect();
@@ -361,50 +386,11 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
 
   // Smooth scroll and pulse highlight when targetAnchorId is specified
   useEffect(() => {
-    if (!targetAnchorId || !contentRef.current) return;
+    if (!targetAnchorId) return;
 
     const timer = setTimeout(() => {
-      const editor = contentRef.current;
-      if (!editor) return;
-
-      let targetEl: HTMLElement | null = null;
-
-      // 1. Try finding by direct ID
-      try {
-        targetEl = editor.querySelector(`#${CSS.escape(targetAnchorId)}`) as HTMLElement | null;
-      } catch {
-        targetEl = null;
-      }
-
-      // 2. Try finding by data-anchor-id
-      if (!targetEl) {
-        try {
-          targetEl = editor.querySelector(`[data-anchor-id="${CSS.escape(targetAnchorId)}"]`) as HTMLElement | null;
-        } catch {
-          targetEl = null;
-        }
-      }
-
-      // 3. Try finding by anchor title/label or heading match
-      if (!targetEl) {
-        const potentialElements = Array.from(
-          editor.querySelectorAll('.note-anchor-block, h1, h2, h3, p, div')
-        ) as HTMLElement[];
-
-        const q = targetAnchorId.toLowerCase();
-        for (const el of potentialElements) {
-          const text = (el.textContent || '').toLowerCase();
-          if (text.includes(q)) {
-            targetEl = el.closest('.note-anchor-block') as HTMLElement || el;
-            break;
-          }
-        }
-      }
-
-      if (targetEl) {
-        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }, 120);
+      scrollToSection(targetAnchorId);
+    }, 100);
 
     return () => clearTimeout(timer);
   }, [targetAnchorId, note?.id]);
@@ -631,6 +617,105 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
     // Normal blur handler - do not inject artificial partitions
   };
 
+  const convertTypedUrlAtCursor = (isSpaceKey = false): boolean => {
+    const editor = contentRef.current;
+    if (!editor) return false;
+
+    const selection = window.getSelection();
+    if (!selection || !selection.anchorNode) return false;
+
+    let node: Node | null = selection.anchorNode;
+    let offset = selection.anchorOffset;
+
+    // Check if inside <a>, <pre>, <code> or anchor label
+    const parentEl = (node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement)) as HTMLElement | null;
+    if (parentEl?.closest('a, pre, code, .note-anchor-block')) return false;
+
+    if (node.nodeType !== Node.TEXT_NODE) {
+      if (node.childNodes && offset > 0) {
+        node = node.childNodes[offset - 1];
+        if (node.nodeType === Node.TEXT_NODE) {
+          offset = node.textContent?.length || 0;
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    }
+
+    const text = node.textContent || '';
+    const textBefore = text.substring(0, offset);
+
+    // Look for URL ending right at cursor
+    const urlPattern = /(https?:\/\/[^\s<>"'`]+|www\.[^\s<>"'`]+)$/i;
+    const match = urlPattern.exec(isSpaceKey ? textBefore : textBefore.trimEnd());
+    if (!match) return false;
+
+    let rawUrl = match[1];
+    let trailingPunct = '';
+    const punctMatch = rawUrl.match(/[.,;:!?)]+$/);
+    if (punctMatch) {
+      trailingPunct = punctMatch[0];
+      rawUrl = rawUrl.slice(0, -trailingPunct.length);
+    }
+
+    if (!rawUrl || rawUrl.length < 4) return false;
+
+    const fullUrl = rawUrl.startsWith('www.') ? `https://${rawUrl}` : rawUrl;
+    const domain = extractDomain(fullUrl);
+    const favicon = getFaviconUrl(domain);
+    const displayTitle = formatUrlTitle(fullUrl);
+
+    const matchStart = match.index;
+    const urlLength = rawUrl.length;
+
+    // Create rich link DOM element
+    const link = document.createElement('a');
+    link.href = fullUrl;
+    link.className = 'rich-link';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.contentEditable = 'false';
+    link.setAttribute('data-url', fullUrl);
+    link.innerHTML = `<img src="${favicon}" alt="" class="rich-link-icon" onerror="this.style.display='none'" /><span>${displayTitle}</span>`;
+
+    // Replace the URL portion of the text node using DOM range
+    const range = document.createRange();
+    range.setStart(node, matchStart);
+    range.setEnd(node, matchStart + urlLength);
+    range.deleteContents();
+    range.insertNode(link);
+
+    // If there is trailing punctuation, restore it after the link
+    let insertAfterNode: Node = link;
+    if (trailingPunct) {
+      const punctNode = document.createTextNode(trailingPunct);
+      link.parentNode?.insertBefore(punctNode, link.nextSibling);
+      insertAfterNode = punctNode;
+    }
+
+    // Add trailing non-breaking space for smooth continuous typing
+    const spaceNode = document.createTextNode('\u00A0');
+    if (insertAfterNode.nextSibling) {
+      insertAfterNode.parentNode?.insertBefore(spaceNode, insertAfterNode.nextSibling);
+    } else {
+      insertAfterNode.parentNode?.appendChild(spaceNode);
+    }
+
+    // Move caret after the space
+    const newRange = document.createRange();
+    newRange.setStartAfter(spaceNode);
+    newRange.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+    savedRangeRef.current = newRange.cloneRange();
+
+    handleContentInput();
+    document.dispatchEvent(new Event('selectionchange'));
+    return true;
+  };
+
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     const text = e.clipboardData.getData('text/plain').trim();
     // Check if the pasted text is a single URL
@@ -643,8 +728,15 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
       return;
     }
 
-    // For any standard paste (text, rich HTML, tables), ensure content change is saved
+    // For any standard paste (text, rich HTML, tables), auto convert raw URLs if present
     setTimeout(() => {
+      if (contentRef.current) {
+        const currentHtml = contentRef.current.innerHTML;
+        const converted = autoConvertUrlsToRichLinks(currentHtml);
+        if (converted !== currentHtml) {
+          contentRef.current.innerHTML = converted;
+        }
+      }
       handleContentInput();
     }, 10);
   };
@@ -801,23 +893,15 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
     }
 
     // When pressing space or enter, check if user just typed a URL to automatically convert it
-    if (e.key === ' ' || e.key === 'Enter') {
-      setTimeout(() => {
-        if (!contentRef.current) return;
-        const selection = window.getSelection();
-        if (!selection || !selection.focusNode) return;
-        
-        const textContent = selection.focusNode.textContent || '';
-        const rawUrlRegex = /(https?:\/\/[^\s<>"'`]+|www\.[^\s<>"'`]+)$/i;
-        const match = rawUrlRegex.exec(textContent.trim());
-        if (match && selection.focusNode.parentElement?.tagName !== 'A') {
-          const converted = autoConvertUrlsToRichLinks(contentRef.current.innerHTML);
-          if (converted !== contentRef.current.innerHTML) {
-            contentRef.current.innerHTML = converted;
-            handleContentInput();
-          }
-        }
-      }, 10);
+    if (e.key === ' ') {
+      if (convertTypedUrlAtCursor(true)) {
+        e.preventDefault();
+        return;
+      }
+    }
+
+    if (e.key === 'Enter') {
+      convertTypedUrlAtCursor(false);
     }
   };
 
@@ -912,79 +996,306 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
     handleContentInput();
   };
 
+  const restoreSavedSelection = () => {
+    const editor = contentRef.current;
+    if (!editor) return false;
+    editor.focus();
+    const sel = window.getSelection();
+    if (!sel) return false;
+
+    if (savedRangeRef.current) {
+      try {
+        if (editor.contains(savedRangeRef.current.commonAncestorContainer)) {
+          sel.removeAllRanges();
+          sel.addRange(savedRangeRef.current);
+          return true;
+        }
+      } catch {
+        // Range became detached or invalid
+      }
+    }
+
+    // Fallback: create a range at the end of editor
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      savedRangeRef.current = range.cloneRange();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const applyStylesToDomRange = (
+    range: Range,
+    styles: Record<string, string>,
+    editor: HTMLElement
+  ) => {
+    // If range is within a single text node
+    if (
+      range.startContainer === range.endContainer &&
+      range.startContainer.nodeType === Node.TEXT_NODE
+    ) {
+      const textNode = range.startContainer as Text;
+      const start = range.startOffset;
+      const end = range.endOffset;
+      if (start >= end) return;
+
+      const parent = textNode.parentElement;
+      // If the entire text node is selected and parent is a SPAN with only this text node
+      if (
+        parent &&
+        parent !== editor &&
+        parent.tagName === 'SPAN' &&
+        parent.childNodes.length === 1 &&
+        start === 0 &&
+        end === textNode.length
+      ) {
+        Object.entries(styles).forEach(([prop, val]) => {
+          if (val) (parent.style as any)[prop] = val;
+          else if (val === '') (parent.style as any)[prop] = '';
+        });
+        return;
+      }
+
+      const subRange = document.createRange();
+      subRange.setStart(textNode, start);
+      subRange.setEnd(textNode, end);
+      const extracted = subRange.extractContents();
+      const span = document.createElement('span');
+      Object.entries(styles).forEach(([prop, val]) => {
+        if (val) (span.style as any)[prop] = val;
+      });
+      span.appendChild(extracted);
+      subRange.insertNode(span);
+
+      // Reselect the new span contents
+      const sel = window.getSelection();
+      if (sel) {
+        const newRange = document.createRange();
+        newRange.selectNodeContents(span);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+        savedRangeRef.current = newRange.cloneRange();
+      }
+      return;
+    }
+
+    // If selection spans multiple nodes/blocks
+    const ancestor = range.commonAncestorContainer;
+    const rootNode =
+      ancestor.nodeType === Node.TEXT_NODE
+        ? ancestor.parentNode || ancestor
+        : ancestor;
+    const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!range.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
+        if (!node.textContent || node.textContent.length === 0)
+          return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+
+    const textNodes: { node: Text; start: number; end: number }[] = [];
+    let curr = walker.nextNode();
+    while (curr) {
+      const textNode = curr as Text;
+      let start = 0;
+      let end = textNode.length;
+      if (textNode === range.startContainer) {
+        start = range.startOffset;
+      }
+      if (textNode === range.endContainer) {
+        end = range.endOffset;
+      }
+      if (start < end) {
+        textNodes.push({ node: textNode, start, end });
+      }
+      curr = walker.nextNode();
+    }
+
+    textNodes.forEach(({ node, start, end }) => {
+      const parent = node.parentElement;
+      if (
+        parent &&
+        parent !== editor &&
+        parent.tagName === 'SPAN' &&
+        parent.childNodes.length === 1 &&
+        start === 0 &&
+        end === node.length
+      ) {
+        Object.entries(styles).forEach(([prop, val]) => {
+          if (val) (parent.style as any)[prop] = val;
+          else if (val === '') (parent.style as any)[prop] = '';
+        });
+        return;
+      }
+
+      const subRange = document.createRange();
+      subRange.setStart(node, start);
+      subRange.setEnd(node, end);
+      const extracted = subRange.extractContents();
+      const span = document.createElement('span');
+      Object.entries(styles).forEach(([prop, val]) => {
+        if (val) (span.style as any)[prop] = val;
+      });
+      span.appendChild(extracted);
+      subRange.insertNode(span);
+    });
+  };
+
+  const applyStyleToAllBlocks = (styles: Record<string, string>) => {
+    const editor = contentRef.current;
+    if (!editor) return;
+
+    // Apply to editor root
+    Object.entries(styles).forEach(([prop, val]) => {
+      if (val) {
+        (editor.style as any)[prop] = val;
+      }
+    });
+
+    const blocks = editor.querySelectorAll(
+      'p, h1, h2, h3, h4, h5, h6, blockquote, li, pre, div.note-anchor-block'
+    );
+    if (blocks.length > 0) {
+      blocks.forEach((b) => {
+        const el = b as HTMLElement;
+        Object.entries(styles).forEach(([prop, val]) => {
+          if (val) {
+            (el.style as any)[prop] = val;
+          }
+        });
+      });
+    } else {
+      const p = document.createElement('p');
+      Object.entries(styles).forEach(([prop, val]) => {
+        if (val) (p.style as any)[prop] = val;
+      });
+      while (editor.firstChild) {
+        p.appendChild(editor.firstChild);
+      }
+      if (!p.textContent && !p.hasChildNodes()) {
+        p.appendChild(document.createElement('br'));
+      }
+      editor.appendChild(p);
+    }
+  };
+
+  const applyInlineStyleToSelection = (styles: {
+    fontFamily?: string;
+    fontSize?: string;
+    color?: string;
+    backgroundColor?: string;
+  }) => {
+    const editor = contentRef.current;
+    if (!editor) return;
+    restoreSavedSelection();
+
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) {
+      applyStyleToAllBlocks(styles as Record<string, string>);
+      handleContentInput();
+      document.dispatchEvent(new Event('selectionchange'));
+      return;
+    }
+
+    const range = sel.getRangeAt(0);
+
+    // If selection is collapsed (cursor only, no text highlighted) or not inside editor
+    if (sel.isCollapsed || !editor.contains(range.commonAncestorContainer)) {
+      let node: Node | null = range.startContainer;
+      if (node && node.nodeType === Node.TEXT_NODE) node = node.parentNode;
+      const block = (node as HTMLElement | null)?.closest(
+        'p, h1, h2, h3, h4, h5, h6, blockquote, li, pre, div'
+      ) as HTMLElement | null;
+
+      if (block && editor.contains(block) && block !== editor) {
+        Object.entries(styles).forEach(([prop, val]) => {
+          if (val) {
+            (block.style as any)[prop] = val;
+          } else if (val === '') {
+            (block.style as any)[prop] = '';
+          }
+        });
+      } else {
+        applyStyleToAllBlocks(styles as Record<string, string>);
+      }
+      handleContentInput();
+      document.dispatchEvent(new Event('selectionchange'));
+      return;
+    }
+
+    // Text IS selected across range:
+    try {
+      applyStylesToDomRange(range, styles as Record<string, string>, editor);
+      if (sel.rangeCount > 0) {
+        savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+      }
+    } catch (err) {
+      console.warn('Could not apply inline style to selection:', err);
+    }
+
+    handleContentInput();
+    document.dispatchEvent(new Event('selectionchange'));
+  };
+
   const handleExecCommand = (command: TextFormatCommand, value: string = '') => {
     if (contentRef.current) {
-      contentRef.current.focus();
+      restoreSavedSelection();
       if (command === 'removeFormat') {
         handleClearFormatting();
         return;
       }
+      document.execCommand('styleWithCSS', false, 'true');
       document.execCommand(command, false, value || undefined);
       handleContentInput();
+      document.dispatchEvent(new Event('selectionchange'));
     }
   };
 
   const handleApplyFontFamily = (fontFamily: string) => {
-    if (contentRef.current) {
-      contentRef.current.focus();
-      document.execCommand('styleWithCSS', false, 'true');
-      document.execCommand('fontName', false, fontFamily);
-      handleContentInput();
-    }
+    applyInlineStyleToSelection({ fontFamily });
   };
 
   const handleApplyFontSize = (fontSize: string) => {
-    if (contentRef.current) {
-      contentRef.current.focus();
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) return;
-
-      if (!selection.isCollapsed) {
-        document.execCommand('styleWithCSS', false, 'true');
-        const range = selection.getRangeAt(0);
-        const span = document.createElement('span');
-        span.style.fontSize = fontSize;
-        try {
-          span.appendChild(range.extractContents());
-          range.insertNode(span);
-          selection.removeAllRanges();
-          const newRange = document.createRange();
-          newRange.selectNodeContents(span);
-          selection.addRange(newRange);
-        } catch {
-          document.execCommand('fontSize', false, '3');
-        }
-      }
-      handleContentInput();
-    }
+    applyInlineStyleToSelection({ fontSize });
   };
 
   const handleApplyLineHeight = (lineHeight: string) => {
     const editor = contentRef.current;
     if (!editor) return;
+    restoreSavedSelection();
 
-    editor.focus();
-    const selection = window.getSelection();
+    editor.style.lineHeight = lineHeight;
 
-    if (selection && selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+      const range = sel.getRangeAt(0);
       const blocks = Array.from(
-        editor.querySelectorAll('p, h1, h2, h3, h4, h5, h6, blockquote, li, pre, div.note-anchor-block')
+        editor.querySelectorAll(
+          'p, h1, h2, h3, h4, h5, h6, blockquote, li, pre, div.note-anchor-block'
+        )
       ) as HTMLElement[];
 
       let applied = false;
       for (const block of blocks) {
-        if (range.intersectsNode(block) || selection.containsNode(block, true)) {
+        if (range.intersectsNode(block) || sel.containsNode(block, true)) {
           block.style.lineHeight = lineHeight;
           applied = true;
         }
       }
 
       if (!applied) {
-        let node: Node | null = selection.anchorNode;
+        let node: Node | null = sel.anchorNode;
         if (node && editor.contains(node)) {
           if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
-          const block = (node as HTMLElement | null)?.closest('p, h1, h2, h3, h4, h5, h6, blockquote, li, pre, div') as HTMLElement | null;
+          const block = (node as HTMLElement | null)?.closest(
+            'p, h1, h2, h3, h4, h5, h6, blockquote, li, pre, div'
+          ) as HTMLElement | null;
           if (block && editor.contains(block) && block !== editor) {
             block.style.lineHeight = lineHeight;
             applied = true;
@@ -993,21 +1304,105 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
       }
 
       if (!applied) {
-        editor.style.lineHeight = lineHeight;
+        blocks.forEach((b) => {
+          b.style.lineHeight = lineHeight;
+        });
       }
     } else {
-      editor.style.lineHeight = lineHeight;
+      let node: Node | null = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
+      if (node && editor.contains(node)) {
+        if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
+        const block = (node as HTMLElement | null)?.closest(
+          'p, h1, h2, h3, h4, h5, h6, blockquote, li, pre, div'
+        ) as HTMLElement | null;
+        if (block && editor.contains(block) && block !== editor) {
+          block.style.lineHeight = lineHeight;
+        }
+      }
+      editor
+        .querySelectorAll('p, h1, h2, h3, h4, h5, h6, blockquote, li, pre')
+        .forEach((el) => {
+          (el as HTMLElement).style.lineHeight = lineHeight;
+        });
     }
 
     handleContentInput();
+    document.dispatchEvent(new Event('selectionchange'));
   };
 
   const handleFormatBlock = (tag: BlockFormatCommand) => {
-    if (contentRef.current) {
-      contentRef.current.focus();
-      document.execCommand('formatBlock', false, tag);
-      handleContentInput();
+    const editor = contentRef.current;
+    if (!editor) return;
+    restoreSavedSelection();
+
+    const rawTag = tag.replace(/[<>]/g, '').toLowerCase();
+    const sel = window.getSelection();
+
+    if (!sel || sel.rangeCount === 0) {
+      return;
     }
+
+    const range = sel.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) {
+      return;
+    }
+    let node: Node | null = range.startContainer;
+    if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
+
+    // If node is directly the editor container (e.g. naked text node)
+    if (node === editor) {
+      const p = document.createElement(rawTag === 'p' ? 'p' : rawTag);
+      while (editor.firstChild) {
+        p.appendChild(editor.firstChild);
+      }
+      editor.appendChild(p);
+      const newRange = document.createRange();
+      newRange.selectNodeContents(p);
+      newRange.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+      savedRangeRef.current = newRange.cloneRange();
+      handleContentInput();
+      document.dispatchEvent(new Event('selectionchange'));
+      return;
+    }
+
+    const block = (node as HTMLElement | null)?.closest('p, h1, h2, h3, h4, h5, h6, blockquote, pre, div, li') as HTMLElement | null;
+
+    if (block && editor.contains(block) && block !== editor) {
+      const newBlock = document.createElement(rawTag === 'p' ? 'p' : rawTag);
+      newBlock.innerHTML = block.innerHTML;
+      if (block.id) newBlock.id = block.id;
+      if (block.getAttribute('data-anchor-id')) {
+        newBlock.setAttribute('data-anchor-id', block.getAttribute('data-anchor-id')!);
+      }
+      if (block.getAttribute('data-anchor-title')) {
+        newBlock.setAttribute('data-anchor-title', block.getAttribute('data-anchor-title')!);
+      }
+      if (block.style.lineHeight) {
+        newBlock.style.lineHeight = block.style.lineHeight;
+      }
+      if (block.style.textAlign) {
+        newBlock.style.textAlign = block.style.textAlign;
+      }
+      block.parentNode?.replaceChild(newBlock, block);
+
+      const newRange = document.createRange();
+      newRange.selectNodeContents(newBlock);
+      newRange.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+      savedRangeRef.current = newRange.cloneRange();
+    } else {
+      try {
+        document.execCommand('formatBlock', false, `<${rawTag}>`);
+      } catch {
+        // ignore
+      }
+    }
+
+    handleContentInput();
+    document.dispatchEvent(new Event('selectionchange'));
   };
 
   const handleInsertImageFile = (file: File) => {
@@ -1110,25 +1505,68 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
     exportNote: handleExport,
     changeTextColor: (color: string) => {
       onChangeTextColor(color);
-      if (contentRef.current) {
-        contentRef.current.focus();
-        document.execCommand('foreColor', false, color);
-        handleContentInput();
-      }
+      applyInlineStyleToSelection({ color });
     },
     changeHighlightColor: (color: string) => {
       onChangeHighlightColor(color);
-      if (contentRef.current) {
-        contentRef.current.focus();
-        document.execCommand('hiliteColor', false, color);
-        handleContentInput();
+      applyInlineStyleToSelection({
+        backgroundColor: color === 'transparent' ? '' : color,
+      });
+    },
+    insertLink: (url: string) => {
+      const editor = contentRef.current;
+      if (!editor) return;
+      editor.focus();
+      const sel = window.getSelection();
+      if (savedRangeRef.current && sel) {
+        try {
+          sel.removeAllRanges();
+          sel.addRange(savedRangeRef.current);
+        } catch {
+          // ignore
+        }
       }
+      const richHtml = createGraphicLinkHtml(url);
+      document.execCommand('insertHTML', false, richHtml);
+      handleContentInput();
+    },
+    insertPlainText: (text: string) => {
+      const editor = contentRef.current;
+      if (!editor) return;
+      editor.focus();
+      const sel = window.getSelection();
+      if (savedRangeRef.current && sel) {
+        try {
+          sel.removeAllRanges();
+          sel.addRange(savedRangeRef.current);
+        } catch {
+          // ignore
+        }
+      }
+      document.execCommand('insertText', false, text);
+      handleContentInput();
+    },
+    insertHtml: (html: string) => {
+      const editor = contentRef.current;
+      if (!editor) return;
+      editor.focus();
+      const sel = window.getSelection();
+      if (savedRangeRef.current && sel) {
+        try {
+          sel.removeAllRanges();
+          sel.addRange(savedRangeRef.current);
+        } catch {
+          // ignore
+        }
+      }
+      document.execCommand('insertHTML', false, html);
+      handleContentInput();
     },
   }));
 
   if (!note) {
     return (
-      <main id="editor-empty-state" className="flex-1 flex flex-col items-center justify-center p-8 bg-white text-neutral-400 select-none">
+      <main id="editor-empty-state" className="flex-1 min-w-0 min-h-0 h-full flex flex-col items-center justify-center p-8 bg-white text-neutral-400 select-none">
         <FileText className="w-12 h-12 text-neutral-200 mb-3" strokeWidth={1.75} />
         <p className="text-sm font-medium text-neutral-500 mb-4">
           Оберіть нотатку зі списку або створіть нову
@@ -1136,9 +1574,9 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
         <button
           type="button"
           onClick={onCreateNote}
-          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-lg shadow-xs transition-colors cursor-pointer"
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-neutral-900 bg-neutral-100 hover:bg-neutral-200 border border-neutral-300/80 rounded-full transition-colors cursor-pointer"
         >
-          <Plus className="w-4 h-4" strokeWidth={1.75} />
+          <Plus className="w-4 h-4" strokeWidth={2} />
           <span>Нова нотатка</span>
         </button>
       </main>
@@ -1149,26 +1587,33 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
   const chars = countCharacters(note.content);
 
   return (
-    <main id="editor-main-pane" className="flex-1 flex flex-col min-w-0 bg-white relative">
+    <main
+      id={isDeck ? 'deck-editor-main-pane' : 'editor-main-pane'}
+      className="flex-1 min-w-0 min-h-0 h-full flex flex-col bg-white relative overflow-hidden"
+    >
       {/* Floating minimal scrollbar in anchor dot style (when note does not have multiple sections) */}
       {sections.length <= 1 && (
         <FloatingScrollbar
           containerRef={documentFrameRef}
-          rightOffsetClass="right-3 sm:right-6"
+          rightOffsetClass={isDeck ? 'right-2' : 'right-1.5 sm:right-3 md:right-5'}
           dotSizeClass="w-1.5 h-1.5"
-          topPadding={76}
-          bottomPadding={32}
+          topPadding={isDeck ? 20 : 36}
+          bottomPadding={isDeck ? 16 : 32}
         />
       )}
 
       {/* Document Workspace (Scrolls under the seamless translucent floating island header) */}
       <div
         ref={documentFrameRef}
-        id="editor-document-frame"
+        id={isDeck ? 'deck-editor-document-frame' : 'editor-document-frame'}
         onScroll={handleDocumentScroll}
-        className="flex-1 overflow-y-auto scrollbar-none px-6 sm:px-12 md:px-16 pt-20 sm:pt-24 pb-24 [mask-image:linear-gradient(to_bottom,transparent_0px,transparent_4px,black_18px,black_100%)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0px,transparent_4px,black_18px,black_100%)]"
+        className={
+          isDeck
+            ? 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 sm:px-8 py-5 select-text scrollbar-none'
+            : 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-none px-4 sm:px-8 md:px-12 lg:px-16 pt-5 sm:pt-7 md:pt-8 pb-28 sm:pb-32 [mask-image:linear-gradient(to_bottom,transparent_0px,transparent_4px,black_18px,black_100%)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0px,transparent_4px,black_18px,black_100%)]'
+        }
       >
-        <div className="max-w-3xl mx-auto relative">
+        <div className="w-full max-w-4xl xl:max-w-5xl 2xl:max-w-6xl mx-auto relative min-w-0">
           {/* Interactive Table Editor Overlay (Word-like resizing, +/- rows/cols, Word copy) */}
           <TableEditorManager
             editorRef={contentRef}
@@ -1176,17 +1621,21 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
           />
 
           {/* Note Title Input */}
-          <div className="flex items-center gap-2 mb-6">
+          <div className="flex items-center gap-2 mb-4 sm:mb-6 min-w-0">
             <input
               ref={titleInputRef}
-              id="editor-title-input"
+              id={isDeck ? 'deck-editor-title-input' : 'editor-title-input'}
               type="text"
               value={note.title}
               onChange={handleTitleChange}
               onFocus={() => onTyping?.()}
               onKeyDown={() => onTyping?.()}
               placeholder="Назва нотатки"
-              className="flex-1 text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight text-neutral-900 placeholder:text-neutral-300 bg-transparent border-none outline-none"
+              className={
+                isDeck
+                  ? 'flex-1 min-w-0 text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-neutral-900 placeholder:text-neutral-300 bg-transparent border-none outline-none'
+                  : 'flex-1 min-w-0 text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold tracking-tight text-neutral-900 placeholder:text-neutral-300 bg-transparent border-none outline-none'
+              }
             />
           </div>
 
@@ -1195,7 +1644,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
             <div
               id="active-heading-anchor-badge"
               style={{ top: `${activeHeadingInfo.top}px` }}
-              className="absolute -left-7 sm:-left-8 -translate-y-1/2 flex items-center z-20 transition-all duration-150"
+              className="absolute -left-6 sm:-left-8 -translate-y-1/2 flex items-center z-20 transition-all duration-150"
             >
               <button
                 type="button"
@@ -1216,7 +1665,7 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
           {/* Note Rich Content Editable */}
           <div
             ref={contentRef}
-            id="editor-content-area"
+            id={isDeck ? 'deck-editor-content-area' : 'editor-content-area'}
             contentEditable
             suppressContentEditableWarning
             onFocus={() => onTyping?.()}
@@ -1231,7 +1680,11 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
               setTimeout(updateActiveHeading, 10);
             }}
             data-placeholder="Почніть писати…"
-            className="editor-typography outline-none text-neutral-800 text-base leading-relaxed min-h-[400px]"
+            className={
+              isDeck
+                ? 'editor-typography outline-none text-neutral-800 text-sm sm:text-base leading-relaxed min-h-[300px] break-words max-w-full'
+                : 'editor-typography outline-none text-neutral-800 text-sm sm:text-base leading-relaxed min-h-[400px] break-words max-w-full'
+            }
           />
         </div>
       </div>
@@ -1241,40 +1694,12 @@ export const EditorPane = forwardRef<EditorPaneHandle, EditorPaneProps>(({
         sections={sections}
         activeSectionId={activeSectionId}
         onNavigateToSection={scrollToSection}
+        className={
+          isDeck
+            ? 'absolute right-1.5 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-1.5 p-1 transition-all select-none pointer-events-auto'
+            : undefined
+        }
       />
-
-      {/* Floating Document Statistics Icon & Popover */}
-      <div
-        ref={statsContainerRef}
-        id="editor-stats-container"
-        className="fixed bottom-4 right-6 z-20 flex items-center gap-2 select-none"
-      >
-        {showStats && (
-          <div
-            id="editor-stats-details"
-            className="animate-in fade-in slide-in-from-right-2 duration-150 flex items-center gap-2 text-[11px] text-neutral-600 font-medium bg-white/85 backdrop-blur-md border border-neutral-200/80 shadow-xs px-3 py-1.5 rounded-full"
-          >
-            <span>{words} слів</span>
-            <span className="text-neutral-300">·</span>
-            <span>{chars} симв.</span>
-            <span className="text-neutral-300">·</span>
-            <span className="text-neutral-500">збережено {formatNoteDate(note.updated)}</span>
-          </div>
-        )}
-
-        <button
-          id="editor-stats-toggle-btn"
-          type="button"
-          onClick={() => setShowStats((prev) => !prev)}
-          title={showStats ? 'Сховати статистику нотатки' : 'Статистика нотатки (слова, символи)'}
-          aria-label="Статистика нотатки"
-          className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
-            showStats ? 'text-neutral-950' : 'text-neutral-400 hover:text-neutral-800'
-          }`}
-        >
-          <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4" strokeWidth={showStats ? 2.5 : 1.75} />
-        </button>
-      </div>
     </main>
   );
 });

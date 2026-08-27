@@ -1,10 +1,6 @@
 @import "tailwindcss";
 
 @layer base {
-  *, ::before, ::after {
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  }
-  
   html, body, button, input, textarea, select {
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -16,6 +12,15 @@
 .editor-typography {
   min-height: 350px;
   font-family: 'Times New Roman', 'Tinos', Times, Georgia, serif;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+/* Ensure editor children inherit custom applied font-family and line-height unless explicitly styled */
+.editor-typography * {
+  font-family: inherit;
+  line-height: inherit;
 }
 
 .editor-typography:empty:before {
@@ -53,7 +58,7 @@
 
 .editor-typography p {
   margin-bottom: 0.85rem;
-  line-height: 1.75;
+  line-height: inherit;
 }
 
 .editor-typography ul {
@@ -196,29 +201,16 @@ a.rich-link:hover {
   outline-offset: -1.5px;
 }
 
-/* Custom clean & unobtrusive modern scrollbar */
+/* Hide native scrollbars globally across the app - scrolling is handled seamlessly via touch/trackpad and anchor dots */
 * {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 9999px;
-  transition: background 0.2s ease;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 /* Completely hidden scrollbar utility */
@@ -251,3 +243,25 @@ a.rich-link:hover {
 .scrollbar-hover:hover::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.15);
 }
+
+/* Anchor Target Scroll Pulse Highlight */
+@keyframes anchorTargetPulse {
+  0% {
+    background-color: rgba(254, 240, 138, 0.55);
+    box-shadow: 0 0 0 4px rgba(254, 240, 138, 0.35);
+    border-radius: 4px;
+  }
+  60% {
+    background-color: rgba(254, 240, 138, 0.3);
+    box-shadow: 0 0 0 2px rgba(254, 240, 138, 0.15);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.anchor-target-pulse {
+  animation: anchorTargetPulse 1.8s ease-out forwards;
+}
+

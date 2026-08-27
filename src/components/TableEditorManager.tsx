@@ -301,7 +301,9 @@ export const TableEditorManager: React.FC<TableEditorManagerProps> = ({
     }
     // Update selected line position to match the newly inserted boundary
     setTimeout(() => {
-      setSelectedLine((prev) => (prev ? refreshSelectedLineCoords({ ...prev, rowIndex: targetIndex }) : null));
+      setSelectedLine((prev) =>
+        prev && prev.type === 'row' ? refreshSelectedLineCoords({ ...prev, rowIndex: targetIndex }) : null
+      );
     }, 10);
     onContentChange();
   };
@@ -345,7 +347,9 @@ export const TableEditorManager: React.FC<TableEditorManagerProps> = ({
     // Update selected line position
     setTimeout(() => {
       setSelectedLine((prev) =>
-        prev ? refreshSelectedLineCoords({ ...prev, colIndex: atColIndex === -1 ? 0 : atColIndex + 1 }) : null
+        prev && prev.type === 'col'
+          ? refreshSelectedLineCoords({ ...prev, colIndex: atColIndex === -1 ? 0 : atColIndex + 1 })
+          : null
       );
     }, 10);
     onContentChange();
@@ -395,6 +399,7 @@ export const TableEditorManager: React.FC<TableEditorManagerProps> = ({
 
       // 1. If actively dragging to resize
       if (isResizingRef.current) {
+        e.preventDefault();
         const resize = isResizingRef.current;
         const deltaMove = Math.abs(e.clientX - resize.startX) + Math.abs(e.clientY - resize.startY);
         if (deltaMove > 3) {
@@ -474,6 +479,7 @@ export const TableEditorManager: React.FC<TableEditorManagerProps> = ({
       const lineMatch = findClosestTableLine(e.clientX, e.clientY, 4);
 
       if (lineMatch) {
+        e.preventDefault();
         const targetColIdx = lineMatch.colIndex ?? -1;
         const targetRowIdx = lineMatch.rowIndex ?? -1;
 

@@ -200,7 +200,7 @@ export function createGraphicLinkHtml(url: string, label?: string): string {
 }
 
 /**
- * Automatically converts raw URLs in HTML into rich graphical links
+ * Automatically converts raw URLs in HTML (both plain text and standard <a> tags) into rich graphical links
  */
 export function autoConvertUrlsToRichLinks(html: string): string {
   if (!html) return '';
@@ -208,7 +208,7 @@ export function autoConvertUrlsToRichLinks(html: string): string {
   const temp = document.createElement('div');
   temp.innerHTML = html;
 
-  // Enhance existing anchors that don't have rich-link formatting yet
+  // 1. Enhance existing anchors that don't have rich-link formatting yet
   const anchors = temp.querySelectorAll('a:not(.rich-link)');
   anchors.forEach((a) => {
     const href = a.getAttribute('href');
@@ -224,6 +224,94 @@ export function autoConvertUrlsToRichLinks(html: string): string {
       a.setAttribute('contenteditable', 'false');
       a.setAttribute('data-url', fullUrl);
       a.innerHTML = `<img src="${favicon}" alt="" class="rich-link-icon" onerror="this.style.display='none'" /><span>${text}</span>`;
+    }
+  });
+
+  // 2. Convert raw URLs in plain text nodes (excluding nodes inside <a>, <pre>, <code>, <script>, <style>)
+  const walker = document.createTreeWalker(
+    temp,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node) {
+        let parent = node.parentElement;
+        while (parent && parent !== temp) {
+          const tag = parent.tagName.toLowerCase();
+          if (tag === 'a' || tag === 'script' || tag === 'style' || tag === 'pre' || tag === 'code' || tag === 'textarea') {
+            return NodeFilter.FILTER_REJECT;
+          }
+          parent = parent.parentElement;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }
+  );
+
+  const textNodes: Text[] = [];
+  let currentNode: Node | null;
+  while ((currentNode = walker.nextNode())) {
+    textNodes.push(currentNode as Text);
+  }
+
+  const urlRegex = /(https?:\/\/[^\s<>"'`]+|www\.[^\s<>"'`]+)/gi;
+
+  textNodes.forEach((textNode) => {
+    const text = textNode.nodeValue || '';
+    if (!urlRegex.test(text)) return;
+    urlRegex.lastIndex = 0;
+
+    const fragment = document.createDocumentFragment();
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = urlRegex.exec(text)) !== null) {
+      const matchIndex = match.index;
+      let rawUrl = match[0];
+
+      // Strip trailing punctuation like . , ; : ! ? ) ] }
+      let trailingPunct = '';
+      const punctMatch = rawUrl.match(/[.,;:!?)]+$/);
+      if (punctMatch) {
+        trailingPunct = punctMatch[0];
+        rawUrl = rawUrl.slice(0, -trailingPunct.length);
+      }
+
+      if (!rawUrl) continue;
+
+      // Text before URL
+      if (matchIndex > lastIndex) {
+        fragment.appendChild(document.createTextNode(text.substring(lastIndex, matchIndex)));
+      }
+
+      // Rich link element
+      const fullUrl = rawUrl.startsWith('www.') ? `https://${rawUrl}` : rawUrl;
+      const domain = extractDomain(fullUrl);
+      const favicon = getFaviconUrl(domain);
+      const displayTitle = formatUrlTitle(fullUrl);
+
+      const link = document.createElement('a');
+      link.href = fullUrl;
+      link.className = 'rich-link';
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.contentEditable = 'false';
+      link.setAttribute('data-url', fullUrl);
+      link.innerHTML = `<img src="${favicon}" alt="" class="rich-link-icon" onerror="this.style.display='none'" /><span>${displayTitle}</span>`;
+      fragment.appendChild(link);
+
+      // Trailing punct if any
+      if (trailingPunct) {
+        fragment.appendChild(document.createTextNode(trailingPunct));
+      }
+
+      lastIndex = matchIndex + match[0].length;
+    }
+
+    if (lastIndex < text.length) {
+      fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
+    }
+
+    if (textNode.parentNode) {
+      textNode.parentNode.replaceChild(fragment, textNode);
     }
   });
 

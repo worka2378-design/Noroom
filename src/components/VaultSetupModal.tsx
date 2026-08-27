@@ -5,8 +5,16 @@ import {
   EyeOff,
   Download,
   Ban,
+  Folder,
+  RefreshCw,
+  X,
+  Check,
+  ExternalLink,
+  KeyRound,
 } from 'lucide-react';
 import { VaultMeta } from '../utils/crypto';
+import { SyncSettings, isInsideIframe } from '../utils/fileSync';
+import { AnimatedLockIcon } from './AnimatedIcons';
 
 interface VaultSetupModalProps {
   isOpen: boolean;
@@ -18,6 +26,13 @@ interface VaultSetupModalProps {
   onUpdateAutoLockMinutes?: (autoLockMinutes: number) => void;
   onDisableVault: (currentPassword: string) => Promise<boolean>;
   onExportBackup: () => void;
+  syncSettings?: SyncSettings;
+  onPickFolder?: () => Promise<boolean>;
+  onToggleSync?: (enabled: boolean) => void;
+  onDisconnectFolder?: () => void;
+  onSyncNow?: () => Promise<boolean>;
+  isSyncing?: boolean;
+  onOpenApiKeyModal?: () => void;
 }
 
 export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
@@ -30,6 +45,13 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
   onUpdateAutoLockMinutes,
   onDisableVault,
   onExportBackup,
+  syncSettings,
+  onPickFolder,
+  onToggleSync,
+  onDisconnectFolder,
+  onSyncNow,
+  isSyncing = false,
+  onOpenApiKeyModal,
 }) => {
   const [activeTab, setActiveTab] = useState<'settings' | 'password'>('settings');
 
@@ -48,6 +70,7 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showIframeHelp, setShowIframeHelp] = useState(false);
 
   useEffect(() => {
     if (currentMeta?.autoLockMinutes !== undefined) {
@@ -59,6 +82,7 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
     if (isOpen) {
       setError(null);
       setSuccessMsg(null);
+      setShowIframeHelp(false);
       setOldPassword('');
       setNewPassword('');
       setConfirmPassword('');
@@ -198,7 +222,7 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
       >
         {/* Centered Lock Icon without text or close button */}
         <div className="flex justify-center pt-1">
-          <Lock className="w-5 h-5 text-neutral-800" strokeWidth={1.75} />
+          <AnimatedLockIcon isLocked={isConfigured} className="w-5 h-5" />
         </div>
 
         {/* Alerts */}
@@ -390,8 +414,8 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
               </form>
             ) : (
               <>
-                {/* Export encrypted backup icon button under the circles (no text) */}
-                <div className="flex justify-center pt-1">
+                {/* Action Icons Row: Export encrypted backup + Folder Sync + API Key */}
+                <div className="flex items-center justify-center gap-2 pt-1">
                   <button
                     type="button"
                     onClick={onExportBackup}
@@ -401,7 +425,120 @@ export const VaultSetupModal: React.FC<VaultSetupModalProps> = ({
                   >
                     <Download className="w-3.5 h-3.5" strokeWidth={1.75} />
                   </button>
+
+                  {onOpenApiKeyModal && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenApiKeyModal();
+                      }}
+                      title="Налаштувати API ключ Gemini"
+                      aria-label="API ключ Gemini"
+                      className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
+                    >
+                      <KeyRound className="w-3.5 h-3.5" strokeWidth={1.75} />
+                    </button>
+                  )}
+
+                  {onPickFolder && !syncSettings?.folderName && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setError(null);
+                        setShowIframeHelp(false);
+                        try {
+                          const ok = await onPickFolder();
+                          if (ok) {
+                            setSuccessMsg('Папку на ПК підключено!');
+                            setTimeout(() => setSuccessMsg(null), 2500);
+                          }
+                        } catch (err: any) {
+                          if (err?.isIframeError || isInsideIframe() || /cross.?origin|sub.?frame/i.test(err?.message || '')) {
+                            setShowIframeHelp(true);
+                          } else {
+                            setError(err.message || 'Не вдалося підключити папку');
+                          }
+                        }
+                      }}
+                      title="Підключити папку на ПК для автозбереження"
+                      aria-label="Підключити папку на ПК"
+                      className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer"
+                    >
+                      <Folder className="w-3.5 h-3.5" strokeWidth={1.75} />
+                    </button>
+                  )}
                 </div>
+
+                {/* Iframe Open in New Tab Helper */}
+                {showIframeHelp && (
+                  <div className="p-3 bg-neutral-50 border border-neutral-200/90 rounded-2xl text-center space-y-2 animate-in fade-in duration-150">
+                    <p className="text-[11px] text-neutral-600 leading-relaxed">
+                      Політика безпеки браузера дозволяє прямий доступ до файлів лише у повному вікні.
+                    </p>
+                    <a
+                      href={window.location.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-1.5 py-1.5 px-3.5 bg-neutral-100 hover:bg-neutral-200 active:bg-neutral-300 border border-neutral-300/80 rounded-full font-semibold text-xs text-neutral-900 transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" strokeWidth={1.75} />
+                      Відкрити у новій вкладці
+                    </a>
+                  </div>
+                )}
+
+                {/* PC Folder Sync Active Pill */}
+                {syncSettings?.folderName && (
+                  <div className="flex items-center justify-between px-3 py-1.5 bg-neutral-50 border border-neutral-200/90 rounded-full text-xs text-neutral-900 animate-in fade-in duration-150">
+                    <div className="flex items-center gap-1.5 min-w-0 pr-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" title="Автозбереження AES-256 активне" />
+                      <span className="truncate text-[11px] font-medium text-neutral-800" title={syncSettings.folderName}>
+                        {syncSettings.folderName}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      {onSyncNow && (
+                        <button
+                          type="button"
+                          disabled={isSyncing}
+                          onClick={async () => {
+                            setError(null);
+                            const ok = await onSyncNow();
+                            if (ok) {
+                              setSuccessMsg('Синхронізовано з ПК!');
+                              setTimeout(() => setSuccessMsg(null), 2000);
+                            } else {
+                              setError('Помилка синхронізації');
+                            }
+                          }}
+                          title="Синхронізувати зараз"
+                          aria-label="Синхронізувати зараз"
+                          className="w-6 h-6 flex items-center justify-center rounded-full text-neutral-400 hover:text-neutral-900 hover:bg-neutral-200/50 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-neutral-900' : ''}`} strokeWidth={1.75} />
+                        </button>
+                      )}
+
+                      {onDisconnectFolder && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onDisconnectFolder();
+                            setSuccessMsg('Папку відключено');
+                            setTimeout(() => setSuccessMsg(null), 2000);
+                          }}
+                          title="Відключити папку"
+                          aria-label="Відключити папку"
+                          className="w-6 h-6 flex items-center justify-center rounded-full text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                        >
+                          <X className="w-3 h-3" strokeWidth={1.75} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Centered Done Button */}
                 <div className="flex justify-center pt-1">

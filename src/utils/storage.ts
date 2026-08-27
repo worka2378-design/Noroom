@@ -24,11 +24,11 @@ export function formatNoteDate(timestamp: number): string {
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
 }
 
-export function extractPlainSnippet(html: string): string {
+export function extractPlainSnippet(html: string, maxLength = 90): string {
   if (!html) return '';
   const tmp = document.createElement('div');
   tmp.innerHTML = html;
-  return (tmp.textContent || '').trim().slice(0, 90);
+  return (tmp.textContent || '').trim().slice(0, maxLength);
 }
 
 export function countWords(html: string): number {

@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Search, X, FolderPlus, FileText, Link2, Plus, Lock, Unlock } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { Note, Folder } from './types';
 import {
   loadSavedNotes,
@@ -38,19 +38,28 @@ import {
   decryptVaultPayload,
 } from './utils/crypto';
 import {
-  createGraphicLinkHtml,
   extractAllLinksFromNotes,
   removeLinkFromContent,
   ExtractedLink,
 } from './utils/links';
+import {
+  SyncSettings,
+  loadSyncSettings,
+  saveSyncSettings,
+  getSavedDirectoryHandle,
+  removeSavedDirectoryHandle,
+  pickLocalFolder,
+  syncVaultToLocalFolder,
+} from './utils/fileSync';
 import { syncAutoFolders } from './utils/autoFolders';
 import { Sidebar, SidebarHandle } from './components/Sidebar';
 import { EditorPane, EditorPaneHandle } from './components/EditorPane';
-import { EditorToolbar } from './components/EditorToolbar';
+import { NoteHeaderToolbar } from './components/NoteHeaderToolbar';
 import { LinkModal } from './components/LinkModal';
 import { LogoIcon } from './components/LogoIcon';
 import { VaultLockScreen } from './components/VaultLockScreen';
 import { VaultSetupModal } from './components/VaultSetupModal';
+import { ApiKeyModal } from './components/ApiKeyModal';
 
 export default function App() {
   const [vaultMeta, setVaultMeta] = useState<VaultMeta | null>(() => getSavedVaultMeta());
@@ -69,18 +78,33 @@ export default function App() {
     return initial.length > 0 ? initial[0].id : null;
   });
   const [targetAnchorId, setTargetAnchorId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'notes' | 'links'>('notes');
+  const [viewMode, setViewMode] = useState<'notes' | 'links' | 'ai'>('notes');
   const [searchTerm, setSearchTerm] = useState('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     return safeGetItem(SIDEBAR_STATE_KEY) === 'collapsed';
   });
 
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
   const [textColor, setTextColor] = useState('#1b1c1e');
   const [highlightColor, setHighlightColor] = useState('#fef08a');
 
+  // PC Folder Sync State
+  const [syncSettings, setSyncSettings] = useState<SyncSettings>(() => loadSyncSettings());
+  const [isSyncing, setIsSyncing] = useState(false);
+  const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
+  const localFileSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Load saved DirectoryHandle from IndexedDB on startup
+  useEffect(() => {
+    getSavedDirectoryHandle().then((handle) => {
+      if (handle) {
+        dirHandleRef.current = handle;
+      }
+    });
+  }, []);
+
   // Typing state for auto-collapsing secondary toolbar tools and sidebar
-  const [isToolbarMenuOpen, setIsToolbarMenuOpen] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -133,13 +157,40 @@ export default function App() {
           .catch((err) => {
             console.error('Failed to encrypt vault:', err);
           });
+
+        // Trigger debounced encrypted auto-save to local PC folder if enabled
+        if (dirHandleRef.current && syncSettings.enabled) {
+          if (localFileSyncTimeoutRef.current) {
+            clearTimeout(localFileSyncTimeoutRef.current);
+          }
+          localFileSyncTimeoutRef.current = setTimeout(async () => {
+            if (dirHandleRef.current && vaultMeta && masterPassword) {
+              try {
+                setIsSyncing(true);
+                await syncVaultToLocalFolder(
+                  dirHandleRef.current,
+                  currentNotes,
+                  currentFolders,
+                  currentMap,
+                  vaultMeta,
+                  masterPassword
+                );
+                setSyncSettings((prev) => ({ ...prev, lastSyncTimestamp: Date.now() }));
+              } catch (e) {
+                console.warn('[FileSync] Auto-save to PC folder failed:', e);
+              } finally {
+                setIsSyncing(false);
+              }
+            }
+          }, 600);
+        }
       } else if (!vaultMeta) {
         saveNotesToStorage(currentNotes);
         saveFoldersToStorage(currentFolders);
         saveLinkFolderMapToStorage(currentMap);
       }
     },
-    [vaultMeta, masterPassword]
+    [vaultMeta, masterPassword, syncSettings.enabled]
   );
 
   const persistNotes = useCallback(
@@ -344,6 +395,81 @@ export default function App() {
     URL.revokeObjectURL(url);
   }, [vaultMeta]);
 
+  // Pick local PC folder for automatic encrypted synchronization
+  const handlePickFolder = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await pickLocalFolder();
+      if (!res) return false;
+      dirHandleRef.current = res.handle;
+      setSyncSettings({
+        enabled: true,
+        folderName: res.folderName,
+        lastSyncTimestamp: Date.now(),
+      });
+      // If vault is configured and unlocked, perform initial sync right now
+      if (vaultMeta && masterPassword) {
+        setIsSyncing(true);
+        await syncVaultToLocalFolder(
+          res.handle,
+          notes,
+          folders,
+          linkFolderMap,
+          vaultMeta,
+          masterPassword
+        );
+        setIsSyncing(false);
+      }
+      return true;
+    } catch (err: any) {
+      if (!err?.isIframeError) {
+        console.warn('Pick folder note:', err);
+      }
+      throw err;
+    }
+  }, [folders, linkFolderMap, masterPassword, notes, vaultMeta]);
+
+  // Disconnect local folder
+  const handleDisconnectFolder = useCallback(async () => {
+    await removeSavedDirectoryHandle();
+    dirHandleRef.current = null;
+    const next: SyncSettings = {
+      enabled: false,
+      folderName: null,
+      lastSyncTimestamp: null,
+    };
+    saveSyncSettings(next);
+    setSyncSettings(next);
+  }, []);
+
+  // Manual Sync Now trigger
+  const handleSyncNow = useCallback(async (): Promise<boolean> => {
+    if (!dirHandleRef.current) {
+      const handle = await getSavedDirectoryHandle();
+      if (handle) dirHandleRef.current = handle;
+    }
+    if (!dirHandleRef.current || !vaultMeta || !masterPassword) {
+      return false;
+    }
+    try {
+      setIsSyncing(true);
+      await syncVaultToLocalFolder(
+        dirHandleRef.current,
+        notes,
+        folders,
+        linkFolderMap,
+        vaultMeta,
+        masterPassword
+      );
+      setSyncSettings((prev) => ({ ...prev, lastSyncTimestamp: Date.now() }));
+      return true;
+    } catch (e) {
+      console.error('Sync now failed:', e);
+      return false;
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [folders, linkFolderMap, masterPassword, notes, vaultMeta]);
+
   // Auto-lock timer on user inactivity
   useEffect(() => {
     if (isVaultLocked || !vaultMeta || !vaultMeta.autoLockMinutes || vaultMeta.autoLockMinutes <= 0 || !masterPassword) {
@@ -385,13 +511,73 @@ export default function App() {
     });
   };
 
-  const handleToggleViewMode = () => {
+  const handleToggleViewMode = (mode?: 'notes' | 'links' | 'ai') => {
     if (isSidebarCollapsed) {
       setIsSidebarCollapsed(false);
       safeSetItem(SIDEBAR_STATE_KEY, 'expanded');
     }
-    setViewMode((prev) => (prev === 'links' ? 'notes' : 'links'));
+    if (mode) {
+      setViewMode(mode);
+    } else {
+      setViewMode((prev) => (prev === 'links' ? 'notes' : 'links'));
+    }
   };
+
+  const handleTriggerAi = useCallback(() => {
+    if (isSidebarCollapsed) {
+      setIsSidebarCollapsed(false);
+      safeSetItem(SIDEBAR_STATE_KEY, 'expanded');
+    }
+    setViewMode((prev) => (prev === 'ai' ? 'notes' : 'ai'));
+  }, [isSidebarCollapsed]);
+
+  const handleInsertIntoActiveNote = useCallback(
+    (text: string) => {
+      if (editorPaneRef.current) {
+        editorPaneRef.current.insertPlainText('\n\n' + text + '\n');
+      } else if (activeId) {
+        setNotes((prev) => {
+          const updated = prev.map((n) =>
+            n.id === activeId
+              ? {
+                  ...n,
+                  content: n.content + '<p>' + text.replace(/\n/g, '<br/>') + '</p>',
+                  updated: Date.now(),
+                }
+              : n
+          );
+          persistNotes(updated);
+          return updated;
+        });
+      }
+    },
+    [activeId, persistNotes]
+  );
+
+  const handleCreateNoteWithContent = useCallback(
+    (title: string, content: string) => {
+      const newId = uid();
+      const htmlContent = '<p>' + content.replace(/\n/g, '<br/>') + '</p>';
+      const newNote: Note = {
+        id: newId,
+        title: title || 'ШІ Нотатка',
+        content: htmlContent,
+        created: Date.now(),
+        updated: Date.now(),
+        pinned: false,
+        marked: false,
+        folderId: null,
+      };
+      setNotes((prev) => {
+        const updated = [newNote, ...prev];
+        persistNotes(updated);
+        return updated;
+      });
+      setActiveId(newId);
+      setViewMode('notes');
+    },
+    [persistNotes]
+  );
 
   // Auto-sync folders and sub-folders based on links and headings in notes
   useEffect(() => {
@@ -719,7 +905,35 @@ export default function App() {
     (id: string, e: React.MouseEvent) => {
       e.stopPropagation();
       setNotes((prev) => {
-        const updated = prev.map((n) => (n.id === id ? { ...n, marked: !n.marked } : n));
+        const updated = prev.map((n) =>
+          n.id === id
+            ? {
+                ...n,
+                marked: !n.marked && !n.markerColor,
+                markerColor: !n.marked && !n.markerColor ? '#171717' : null,
+              }
+            : n
+        );
+        persistNotes(updated);
+        return updated;
+      });
+    },
+    [persistNotes]
+  );
+
+  const handleChangeNoteMarkerColor = useCallback(
+    (id: string, color: string | null) => {
+      setNotes((prev) => {
+        const updated = prev.map((n) =>
+          n.id === id
+            ? {
+                ...n,
+                markerColor: color,
+                marked: !!color && color !== 'transparent',
+                updated: Date.now(),
+              }
+            : n
+        );
         persistNotes(updated);
         return updated;
       });
@@ -821,227 +1035,167 @@ export default function App() {
   }, [handleCreateNote, handleLockVault, isVaultLocked, vaultMeta]);
 
   const activeNote = notes.find((n) => n.id === activeId) || null;
+  const [copiedPreviewText, setCopiedPreviewText] = useState(false);
+
+  const getNoteFolderPath = useCallback(
+    (folderId?: string | null): string => {
+      if (!folderId) return 'Коренева папка';
+      const folder = folders.find((f) => f.id === folderId);
+      if (!folder) return 'Коренева папка';
+      if (folder.parentId) {
+        const parent = folders.find((f) => f.id === folder.parentId);
+        if (parent) return `${parent.name} / ${folder.name}`;
+      }
+      return folder.name;
+    },
+    [folders]
+  );
+
+  const handleCopyActiveNoteText = (htmlContent: string) => {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = htmlContent;
+    const plain = (tmp.textContent || '').trim();
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(plain).catch(() => {});
+    }
+    setCopiedPreviewText(true);
+    setTimeout(() => setCopiedPreviewText(false), 1500);
+  };
 
   return (
-    <div className="relative w-full h-screen flex flex-col bg-white text-neutral-900 overflow-hidden font-sans">
-      {/* ================= ONE UNIFIED SEAMLESS TOP HEADER (Floating Island Style) ================= */}
-      <header
-        id="app-top-header"
-        className="fixed top-3.5 sm:top-4 left-0 right-0 z-30 pointer-events-none flex items-center select-none"
-      >
-        {/* Left Side: Sidebar Controls (Matches Sidebar width exactly) */}
-        <div
-          className={`flex items-center px-3.5 sm:px-4 transition-all duration-300 ease-out shrink-0 pointer-events-auto ${
-            isSidebarCollapsed ? 'w-auto' : 'w-72 sm:w-80'
-          }`}
-        >
-          {isSidebarCollapsed ? (
-            /* Signature Pure Logo Toggle Button without background pill when collapsed */
-            <button
-              id="app-logo-toggle-btn"
-              type="button"
-              onClick={toggleSidebar}
-              title="Розгорнути панель"
-              aria-label="Розгорнути панель"
-              className="flex items-center justify-center w-8 h-8 rounded-full text-neutral-900 hover:text-neutral-600 hover:bg-neutral-100/80 transition-colors cursor-pointer group shrink-0"
-            >
-              <LogoIcon className="w-5 h-5 transition-transform duration-200 group-hover:scale-105" />
-            </button>
-          ) : (
-            /* Floating frosted-glass pill wrapping logo + search + options when expanded */
-            <div
-              className="inline-flex items-center gap-1 p-1 bg-white/70 backdrop-blur-xl border border-neutral-200/80 shadow-2xs rounded-full transition-all duration-300 ease-out select-none w-full animate-in fade-in duration-200"
-            >
-              {/* Signature Logo Toggle Button */}
-              <button
-                id="app-logo-toggle-btn"
-                type="button"
-                onClick={toggleSidebar}
-                title="Згорнути панель"
-                aria-label="Згорнути панель"
-                className="flex items-center justify-center w-7 h-7 rounded-full text-neutral-900 hover:text-neutral-600 hover:bg-neutral-200/50 transition-colors cursor-pointer group shrink-0"
-              >
-                <LogoIcon className="w-4.5 h-4.5 transition-transform duration-200 group-hover:scale-105" />
-              </button>
-
-              <div className="flex items-center gap-1 flex-1 min-w-0 pr-0.5 animate-in fade-in slide-in-from-left-2 duration-200">
-                {/* Search Bar */}
-                <div className="relative flex-1 min-w-0 flex items-center">
-                  <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" strokeWidth={1.75} />
-                  <input
-                    id="sidebar-search-input"
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Пошук"
-                    className="w-full pl-6 pr-5 py-1 text-xs bg-transparent text-neutral-900 placeholder:text-neutral-400 outline-none rounded-full"
-                  />
-                  {searchTerm && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchTerm('')}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-neutral-400 hover:text-neutral-800 transition-colors cursor-pointer"
-                      title="Очистити пошук"
-                      aria-label="Очистити пошук"
-                    >
-                      <X className="w-3 h-3" strokeWidth={1.75} />
-                    </button>
-                  )}
-                </div>
-
-                {/* Add Folder Button */}
-                <button
-                  id="sidebar-add-folder-btn"
-                  type="button"
-                  onClick={() => sidebarRef.current?.createFolderDirectly(null)}
-                  title={viewMode === 'links' ? 'Створити головну папку для посилань' : 'Створити головну папку'}
-                  aria-label="Створити головну папку"
-                  className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/50 transition-colors shrink-0 cursor-pointer"
-                >
-                  <FolderPlus className="w-4 h-4" strokeWidth={1.75} />
-                </button>
-
-                {/* View mode toggle button */}
-                <button
-                  id="sidebar-links-toggle-btn"
-                  type="button"
-                  onClick={handleToggleViewMode}
-                  title={viewMode === 'links' ? 'Повернутися до нотаток' : 'Усі збережені посилання'}
-                  aria-label={viewMode === 'links' ? 'Повернутися до нотаток' : 'Усі збережені посилання'}
-                  className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors shrink-0 cursor-pointer ${
-                    viewMode === 'links'
-                      ? 'text-neutral-950 hover:bg-neutral-200/50'
-                      : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/50'
-                  }`}
-                >
-                  {viewMode === 'links' ? (
-                    <FileText className="w-4 h-4" strokeWidth={1.75} />
-                  ) : (
-                    <Link2 className="w-4 h-4" strokeWidth={1.75} />
-                  )}
-                </button>
-
-                {/* New Note Button */}
-                <button
-                  id="sidebar-new-note-btn"
-                  type="button"
-                  onClick={handleCreateNote}
-                  title="Нова нотатка (Alt+N)"
-                  aria-label="Нова нотатка"
-                  className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/50 transition-colors shrink-0 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" strokeWidth={1.75} />
-                </button>
-              </div>
+    <div className="relative w-full h-screen flex flex-col bg-neutral-100/70 text-neutral-900 overflow-hidden font-sans">
+      {/* ================= PRIMARY WORKSPACE CONTAINER (MAIN VIEW AND NOTE EDITING SURFACE) ================= */}
+      <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center p-2 sm:p-3 md:p-3.5 overflow-hidden">
+        <div className="relative w-full max-w-[1600px] h-full max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-1.5rem)] flex flex-col min-h-0">
+          {/* Main Card Container */}
+          <div
+            className={`relative z-10 w-full flex-1 min-h-0 bg-white rounded-3xl sm:rounded-[28px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.06)] border border-neutral-200/90 overflow-hidden flex flex-row ${
+              isVaultLocked && vaultMeta ? 'pointer-events-none' : ''
+            }`}
+          >
+          {/* Left Column: Navigation Sidebar */}
+          {!isSidebarCollapsed && (
+            <div className="w-60 sm:w-72 md:w-80 max-w-[40vw] sm:max-w-none shrink-0 h-full min-h-0 flex flex-col border-r border-neutral-200/80 bg-white overflow-hidden">
+              <Sidebar
+                ref={sidebarRef}
+                variant="dock"
+                notes={notes}
+                activeId={activeId}
+                activeNote={activeNote}
+                searchTerm={searchTerm}
+                onSearchChange={setSearchTerm}
+                onSelectNote={handleSelectNote}
+                onCreateNote={handleCreateNote}
+                onCopyNote={handleCopyNote}
+                onTogglePin={handleTogglePin}
+                onToggleMarked={handleToggleMarked}
+                onDeleteNote={handleDeleteNote}
+                isCollapsed={isSidebarCollapsed}
+                onToggleCollapse={toggleSidebar}
+                viewMode={viewMode}
+                onToggleViewMode={handleToggleViewMode}
+                extractedLinks={extractedLinks}
+                onNavigateToNote={handleNavigateToNote}
+                onDeleteLink={handleDeleteLink}
+                folders={folders}
+                onAddFolder={handleAddFolder}
+                onToggleFolder={handleToggleFolder}
+                onRenameFolder={handleRenameFolder}
+                onDeleteFolder={handleDeleteFolder}
+                onMoveNoteToFolder={handleMoveNoteToFolder}
+                linkFolderMap={linkFolderMap}
+                onMoveLinkToFolder={handleMoveLinkToFolder}
+                onMoveFolderToFolder={handleMoveFolderToFolder}
+                onMarkFolderInteracted={handleMarkFolderInteracted}
+                onOpenSettings={() => setIsVaultSetupOpen(true)}
+                onTriggerAi={handleTriggerAi}
+                onInsertIntoActiveNote={handleInsertIntoActiveNote}
+                onCreateNoteWithContent={handleCreateNoteWithContent}
+                onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+              />
             </div>
           )}
-        </div>
 
-        {/* Center / Editor Space: Perfectly matches EditorPane layout and aligns with document column */}
-        <div
-          className={`flex-1 min-w-0 relative flex items-center px-6 sm:px-12 md:px-16 transition-all duration-200 pointer-events-auto ${
-            !activeNote
-              ? 'opacity-0 pointer-events-none'
-              : 'opacity-100 translate-y-0'
-          }`}
-        >
-          <div className="w-full max-w-3xl mx-auto flex items-center justify-center">
-            <EditorToolbar
-              isSidebarCollapsed={isSidebarCollapsed}
-              isTyping={isTyping}
-              onMenuOpenChange={setIsToolbarMenuOpen}
-              onExecCommand={(cmd, val) => editorPaneRef.current?.execCommand(cmd, val)}
-              onFormatBlock={(tag) => editorPaneRef.current?.formatBlock(tag)}
-              onApplyFontFamily={(font) => editorPaneRef.current?.applyFontFamily(font)}
-              onApplyFontSize={(size) => editorPaneRef.current?.applyFontSize(size)}
-              onApplyLineHeight={(lh) => editorPaneRef.current?.applyLineHeight(lh)}
-              onClearFormatting={() => editorPaneRef.current?.clearFormatting()}
-              onOpenLinkModal={() => setIsLinkModalOpen(true)}
-              onInsertImageFile={(file) => editorPaneRef.current?.insertImageFile(file)}
-              onInsertAnchor={() => editorPaneRef.current?.insertAnchor()}
-              onInsertTable={(rows, cols) => editorPaneRef.current?.insertTable(rows, cols)}
-              onExport={(format) => editorPaneRef.current?.exportNote(format)}
-              textColor={textColor}
-              onChangeTextColor={(color) => {
-                setTextColor(color);
-                editorPaneRef.current?.changeTextColor(color);
-              }}
-              highlightColor={highlightColor}
-              onChangeHighlightColor={(color) => {
-                setHighlightColor(color);
-                editorPaneRef.current?.changeHighlightColor(color);
-              }}
-            />
+          {/* Right Column: Note Document Preview / Main Editor Container */}
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col h-full bg-white overflow-hidden">
+            {activeNote ? (
+              <>
+                {/* Header of Note View with Integrated Rich Text Formatting Toolbar & Actions */}
+                <NoteHeaderToolbar
+                  note={activeNote}
+                  folderPath={getNoteFolderPath(activeNote.folderId)}
+                  isSidebarCollapsed={isSidebarCollapsed}
+                  onToggleSidebar={toggleSidebar}
+                  copiedPreviewText={copiedPreviewText}
+                  onCopyText={() => handleCopyActiveNoteText(activeNote.content)}
+                  onTogglePin={handleTogglePin}
+                  onToggleMarked={handleToggleMarked}
+                  onDeleteNote={handleDeleteNote}
+                  onExecCommand={(cmd, val) => editorPaneRef.current?.execCommand(cmd, val)}
+                  onFormatBlock={(tag) => editorPaneRef.current?.formatBlock(tag)}
+                  onApplyFontFamily={(font) => editorPaneRef.current?.applyFontFamily(font)}
+                  onApplyFontSize={(size) => editorPaneRef.current?.applyFontSize(size)}
+                  onApplyLineHeight={(lh) => editorPaneRef.current?.applyLineHeight(lh)}
+                  onClearFormatting={() => editorPaneRef.current?.clearFormatting()}
+                  onOpenLinkModal={() => setIsLinkModalOpen(true)}
+                  onInsertImageFile={(file) => editorPaneRef.current?.insertImageFile(file)}
+                  onInsertAnchor={() => editorPaneRef.current?.insertAnchor()}
+                  onInsertTable={(rows, cols) => editorPaneRef.current?.insertTable(rows, cols)}
+                  onExport={(format) => editorPaneRef.current?.exportNote(format)}
+                  textColor={textColor}
+                  onChangeTextColor={(color) => {
+                    setTextColor(color);
+                    editorPaneRef.current?.changeTextColor(color);
+                  }}
+                  highlightColor={highlightColor}
+                  onChangeHighlightColor={(color) => {
+                    setHighlightColor(color);
+                    editorPaneRef.current?.changeHighlightColor(color);
+                  }}
+                  onChangeNoteMarkerColor={(color) => handleChangeNoteMarkerColor(activeNote.id, color)}
+                  vaultMeta={vaultMeta}
+                  onOpenVaultSetup={() => setIsVaultSetupOpen(true)}
+                  isTyping={isTyping}
+                />
+
+                {/* Main Note Editor Workspace */}
+                <EditorPane
+                  ref={editorPaneRef}
+                  note={activeNote}
+                  variant="deck"
+                  targetAnchorId={targetAnchorId}
+                  isSidebarCollapsed={isSidebarCollapsed}
+                  onUpdateNote={handleUpdateActiveNote}
+                  onCreateNote={handleCreateNote}
+                  onOpenLinkModal={() => setIsLinkModalOpen(true)}
+                  textColor={textColor}
+                  onChangeTextColor={setTextColor}
+                  highlightColor={highlightColor}
+                  onChangeHighlightColor={setHighlightColor}
+                  onTyping={handleEditorTyping}
+                />
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-neutral-400 select-none">
+                <LogoIcon className="w-10 h-10 text-neutral-300 mb-3" />
+                <p className="text-sm font-medium text-neutral-600">Оберіть або створіть нотатку</p>
+                <p className="text-xs text-neutral-400 mt-1 max-w-[260px] mb-4">
+                  Натисніть на нотатку в списку зліва або створіть нову для швидкого редагування.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCreateNote}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-neutral-900 bg-neutral-100 hover:bg-neutral-200 border border-neutral-300/80 rounded-full transition-colors cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" strokeWidth={2} />
+                  <span>Нова нотатка</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
-
-        {/* Far Right: Vault / Security Controls (Absolute positioned so it doesn't offset toolbar centering) */}
-        <div className="absolute right-3.5 sm:right-5 top-1/2 -translate-y-1/2 pointer-events-auto z-10">
-          <button
-            type="button"
-            onClick={() => setIsVaultSetupOpen(true)}
-            title={vaultMeta ? 'Параметри захисту (захист активний)' : 'Встановити захист нотаток'}
-            aria-label={vaultMeta ? 'Параметри захисту (захист активний)' : 'Встановити захист нотаток'}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-white/70 backdrop-blur-xl border border-neutral-200/80 shadow-2xs hover:bg-white/95 active:bg-neutral-100/90 text-neutral-600 hover:text-neutral-900 transition-colors shrink-0 cursor-pointer"
-          >
-            {vaultMeta ? (
-              <Lock className="w-4 h-4 text-neutral-900" strokeWidth={1.75} />
-            ) : (
-              <Unlock className="w-4 h-4 text-neutral-500" strokeWidth={1.75} />
-            )}
-          </button>
-        </div>
-      </header>
-
-      {/* Main Body (Seamless Continuous Panels) */}
-      <div className={`flex-1 flex min-h-0 w-full ${isVaultLocked && vaultMeta ? 'pointer-events-none' : ''}`}>
-        {/* Sidebar navigation */}
-        <Sidebar
-          ref={sidebarRef}
-          notes={notes}
-          activeId={activeId}
-          searchTerm={searchTerm}
-          onSearchChange={setSearchTerm}
-          onSelectNote={handleSelectNote}
-          onCreateNote={handleCreateNote}
-          onCopyNote={handleCopyNote}
-          onTogglePin={handleTogglePin}
-          onToggleMarked={handleToggleMarked}
-          onDeleteNote={handleDeleteNote}
-          isCollapsed={isSidebarCollapsed}
-          viewMode={viewMode}
-          onToggleViewMode={handleToggleViewMode}
-          extractedLinks={extractedLinks}
-          onNavigateToNote={handleNavigateToNote}
-          onDeleteLink={handleDeleteLink}
-          folders={folders}
-          onAddFolder={handleAddFolder}
-          onToggleFolder={handleToggleFolder}
-          onRenameFolder={handleRenameFolder}
-          onDeleteFolder={handleDeleteFolder}
-          onMoveNoteToFolder={handleMoveNoteToFolder}
-          linkFolderMap={linkFolderMap}
-          onMoveLinkToFolder={handleMoveLinkToFolder}
-          onMoveFolderToFolder={handleMoveFolderToFolder}
-          onMarkFolderInteracted={handleMarkFolderInteracted}
-        />
-
-        {/* Main editor area */}
-        <EditorPane
-          ref={editorPaneRef}
-          note={activeNote}
-          targetAnchorId={targetAnchorId}
-          isSidebarCollapsed={isSidebarCollapsed}
-          onUpdateNote={handleUpdateActiveNote}
-          onCreateNote={handleCreateNote}
-          onOpenLinkModal={() => setIsLinkModalOpen(true)}
-          textColor={textColor}
-          onChangeTextColor={setTextColor}
-          highlightColor={highlightColor}
-          onChangeHighlightColor={setHighlightColor}
-          onTyping={handleEditorTyping}
-        />
       </div>
+    </div>
 
       {/* Floating Quick New Note Button (Visible only when sidebar/layers panel is collapsed) */}
       {isSidebarCollapsed && (!isVaultLocked || !vaultMeta) && (
@@ -1062,9 +1216,7 @@ export default function App() {
         isOpen={isLinkModalOpen}
         onClose={() => setIsLinkModalOpen(false)}
         onSubmit={(url) => {
-          const richLinkHtml = createGraphicLinkHtml(url);
-          document.execCommand('insertHTML', false, richLinkHtml);
-          handleUpdateActiveNote({});
+          editorPaneRef.current?.insertLink(url);
         }}
       />
 
@@ -1079,6 +1231,18 @@ export default function App() {
         onUpdateAutoLockMinutes={handleUpdateAutoLockMinutes}
         onDisableVault={handleDisableVault}
         onExportBackup={handleExportBackup}
+        syncSettings={syncSettings}
+        onPickFolder={handlePickFolder}
+        onDisconnectFolder={handleDisconnectFolder}
+        onSyncNow={handleSyncNow}
+        isSyncing={isSyncing}
+        onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+      />
+
+      {/* Google Gemini API Key Modal */}
+      <ApiKeyModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => setIsApiKeyModalOpen(false)}
       />
 
       {/* Vault Auto-Lock & Security Lock Screen Overlay */}

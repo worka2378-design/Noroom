@@ -2,19 +2,12 @@ import React, { useState, useRef, useImperativeHandle, forwardRef } from 'react'
 import {
   Search,
   Plus,
-  Copy,
-  Check,
-  Pin,
-  Bookmark,
   Trash2,
   Link2,
   FileText,
   Anchor,
   Folder as FolderIcon,
-  FolderOpen,
   FolderPlus,
-  ChevronRight,
-  ChevronDown,
   Edit2,
   Table as TableIcon,
   X,
@@ -22,8 +15,20 @@ import {
 import { Note, Folder } from '../types';
 import { formatNoteDate, extractPlainSnippet } from '../utils/storage';
 import { ExtractedLink } from '../utils/links';
-import { extractNoteSections, findMatchingSectionsInNote, NoteSection } from '../utils/sections';
+import { findMatchingSectionsInNote, NoteSection } from '../utils/sections';
 import { FloatingScrollbar } from './FloatingScrollbar';
+import { LogoIcon } from './LogoIcon';
+import {
+  AnimatedSettingsIcon,
+  AnimatedFolderIcon,
+  AnimatedChevron,
+  AnimatedPinIcon,
+  AnimatedBookmarkIcon,
+  AnimatedCopyIcon,
+  AnimatedTrashIcon,
+  AnimatedAiIcon,
+} from './AnimatedIcons';
+import { AiAssistantPanel } from './AiAssistantPanel';
 
 export interface SidebarHandle {
   createFolderDirectly: (parentId?: string | null) => void;
@@ -32,6 +37,7 @@ export interface SidebarHandle {
 export interface SidebarProps {
   notes: Note[];
   activeId: string | null;
+  activeNote?: Note | null;
   searchTerm: string;
   onSearchChange: (value: string) => void;
   onSelectNote: (id: string, anchorId?: string | null) => void;
@@ -41,8 +47,9 @@ export interface SidebarProps {
   onToggleMarked: (id: string, e: React.MouseEvent) => void;
   onDeleteNote: (id: string, e: React.MouseEvent) => void;
   isCollapsed: boolean;
-  viewMode: 'notes' | 'links';
-  onToggleViewMode: () => void;
+  onToggleCollapse?: () => void;
+  viewMode: 'notes' | 'links' | 'ai';
+  onToggleViewMode: (mode?: 'notes' | 'links' | 'ai') => void;
   extractedLinks: ExtractedLink[];
   onNavigateToNote: (noteId: string, anchorId?: string | null) => void;
   onDeleteLink: (link: ExtractedLink) => void;
@@ -56,11 +63,20 @@ export interface SidebarProps {
   onMoveLinkToFolder: (linkId: string, folderId: string | null) => void;
   onMoveFolderToFolder: (sourceFolderId: string, targetParentId: string | null) => void;
   onMarkFolderInteracted?: (folderId: string) => void;
+  onOpenSettings?: () => void;
+  onTriggerAi?: () => void;
+  onInsertIntoActiveNote?: (text: string) => void;
+  onCreateNoteWithContent?: (title: string, content: string) => void;
+  onOpenApiKeyModal?: () => void;
+  variant?: 'dock' | 'dropdown';
+  onCloseDropdown?: () => void;
+  onPinToDock?: () => void;
 }
 
 export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
   notes,
   activeId,
+  activeNote,
   searchTerm,
   onSearchChange,
   onSelectNote,
@@ -70,6 +86,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
   onToggleMarked,
   onDeleteNote,
   isCollapsed,
+  onToggleCollapse,
   viewMode,
   onToggleViewMode,
   extractedLinks,
@@ -85,6 +102,14 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
   onMoveLinkToFolder,
   onMoveFolderToFolder,
   onMarkFolderInteracted,
+  onOpenSettings,
+  onTriggerAi,
+  onInsertIntoActiveNote,
+  onCreateNoteWithContent,
+  onOpenApiKeyModal,
+  variant = 'dock',
+  onCloseDropdown,
+  onPinToDock,
 }, ref) => {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState('');
@@ -148,11 +173,12 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
   };
 
   const handleCreateFolderDirectly = (parentId?: string | null) => {
-    const newId = onAddFolder(viewMode, parentId);
+    const folderType = viewMode === 'links' ? 'links' : 'notes';
+    const newId = onAddFolder(folderType, parentId);
     if (newId) {
       const defaultName = parentId
         ? 'Нова під-папка'
-        : viewMode === 'notes'
+        : folderType === 'notes'
         ? 'Нова папка'
         : 'Папка посилань';
       setEditingFolderId(newId);
@@ -313,8 +339,12 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
           {/* Marker / Active Dot */}
           <div className="pt-1.5 shrink-0">
             <div
-              className={`w-1.5 h-1.5 rounded-full transition-colors ${
-                note.marked
+              className={`w-1.5 h-1.5 rounded-full transition-all ${
+                note.markerColor
+                  ? note.markerColor === '#ffffff'
+                    ? 'border border-neutral-300 shadow-2xs'
+                    : 'shadow-2xs'
+                  : note.marked
                   ? 'bg-neutral-900'
                   : isActive
                   ? 'bg-neutral-900'
@@ -322,6 +352,11 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
                   ? 'bg-neutral-400'
                   : 'bg-transparent'
               }`}
+              style={
+                note.markerColor
+                  ? { backgroundColor: note.markerColor }
+                  : undefined
+              }
             />
           </div>
 
@@ -352,7 +387,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
 
             <div className="flex items-center justify-between gap-1 mt-0.5 min-h-[16px]">
               <p className="text-[11px] text-neutral-400 truncate flex-1">
-                {snippet || (hasTable ? 'Інтерактивна таблиця' : <span className="opacity-0">Порожньо</span>)}
+                {snippet || (hasTable ? 'Інтерактивна таблиця' : 'пуста')}
               </p>
               {showFolderBadge && parentFolder && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-neutral-400 shrink-0" title={getFolderPath(note.folderId)}>
@@ -375,7 +410,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
               title="Дублювати"
               aria-label="Дублювати"
             >
-              <Copy className="w-3.5 h-3.5" strokeWidth={1.75} />
+              <AnimatedCopyIcon isCopied={false} className="w-3.5 h-3.5" />
             </button>
 
             <button
@@ -387,19 +422,26 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
               title={note.pinned ? 'Відкріпити' : 'Закріпити вгорі'}
               aria-label={note.pinned ? 'Відкріпити' : 'Закріпити вгорі'}
             >
-              <Pin className="w-3.5 h-3.5" strokeWidth={1.75} />
+              <AnimatedPinIcon isPinned={!!note.pinned} className="w-3.5 h-3.5" />
             </button>
 
             <button
               type="button"
               onClick={(e) => onToggleMarked(note.id, e)}
               className={`w-6 h-6 flex items-center justify-center transition-colors ${
-                note.marked ? 'text-neutral-950' : 'text-neutral-400 hover:text-neutral-900'
+                note.markerColor || note.marked ? 'text-neutral-950' : 'text-neutral-400 hover:text-neutral-900'
               }`}
-              title={note.marked ? 'Зняти маркер' : 'Позначити'}
-              aria-label={note.marked ? 'Зняти маркер' : 'Позначити'}
+              title={note.markerColor || note.marked ? 'Зняти маркер' : 'Позначити'}
+              aria-label={note.markerColor || note.marked ? 'Зняти маркер' : 'Позначити'}
             >
-              <Bookmark className="w-3.5 h-3.5" strokeWidth={1.75} />
+              {note.markerColor ? (
+                <span
+                  className="w-2.5 h-2.5 rounded-full border border-black/10 shadow-2xs"
+                  style={{ backgroundColor: note.markerColor }}
+                />
+              ) : (
+                <AnimatedBookmarkIcon isMarked={!!note.marked} className="w-3.5 h-3.5" />
+              )}
             </button>
 
             <button
@@ -409,7 +451,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
               title="Видалити"
               aria-label="Видалити"
             >
-              <Trash2 className="w-3.5 h-3.5" strokeWidth={1.75} />
+              <AnimatedTrashIcon className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -507,11 +549,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
             title={copiedLinkId === link.id ? 'Скопійовано!' : 'Скопіювати посилання'}
             aria-label="Скопіювати посилання"
           >
-            {copiedLinkId === link.id ? (
-              <Check className="w-3.5 h-3.5 text-emerald-600" strokeWidth={1.75} />
-            ) : (
-              <Copy className="w-3.5 h-3.5" strokeWidth={1.75} />
-            )}
+            <AnimatedCopyIcon isCopied={copiedLinkId === link.id} className="w-3.5 h-3.5" />
           </button>
 
           <button
@@ -534,7 +572,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
             title="Видалити"
             aria-label="Видалити"
           >
-            <Trash2 className="w-3.5 h-3.5" strokeWidth={1.75} />
+            <AnimatedTrashIcon className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -605,20 +643,16 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
             }}
             className="w-4 h-4 flex items-center justify-center text-neutral-400 hover:text-neutral-800 rounded transition-colors shrink-0"
           >
-            {folder.collapsed ? (
-              <ChevronRight className="w-3.5 h-3.5" strokeWidth={1.75} />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5" strokeWidth={1.75} />
-            )}
+            <AnimatedChevron isOpen={!folder.collapsed} className="w-3.5 h-3.5" />
           </button>
 
           {/* Folder Icon */}
           <div className="shrink-0">
-            {folder.collapsed ? (
-              <FolderIcon className={`w-3.5 h-3.5 ${isSubFolder ? 'text-neutral-400' : 'text-neutral-500'}`} strokeWidth={1.75} />
-            ) : (
-              <FolderOpen className={`w-3.5 h-3.5 ${isSubFolder ? 'text-neutral-700' : 'text-neutral-950'}`} strokeWidth={1.75} />
-            )}
+            <AnimatedFolderIcon
+              isOpen={!folder.collapsed}
+              isSubFolder={isSubFolder}
+              className="w-3.5 h-3.5"
+            />
           </div>
 
           {/* Folder Name / Inline Edit */}
@@ -719,24 +753,169 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
     );
   };
 
+  if (viewMode === 'ai') {
+    return (
+      <aside
+        id="app-sidebar"
+        className={
+          variant === 'dropdown'
+            ? 'w-full h-full min-h-0 flex flex-col bg-white text-neutral-900 select-none overflow-hidden'
+            : `h-full relative flex flex-col bg-white border-r border-neutral-100 transition-all duration-200 select-none ${
+                isCollapsed ? 'w-0 opacity-0 overflow-hidden pointer-events-none' : 'w-72 sm:w-80 opacity-100'
+              }`
+        }
+      >
+        <AiAssistantPanel
+          activeNote={activeNote || notes.find((n) => n.id === activeId) || null}
+          onClose={() => onToggleViewMode('notes')}
+          onInsertIntoActiveNote={onInsertIntoActiveNote}
+          onCreateNoteWithContent={onCreateNoteWithContent}
+          onOpenApiKeyModal={onOpenApiKeyModal}
+        />
+      </aside>
+    );
+  }
+
   return (
     <aside
       id="app-sidebar"
-      className={`h-full relative flex flex-col bg-white transition-all duration-200 select-none ${
-        isCollapsed ? 'w-0 opacity-0 overflow-hidden pointer-events-none' : 'w-72 sm:w-80 opacity-100'
-      }`}
+      className={
+        variant === 'dropdown'
+          ? 'w-full h-full min-h-0 flex flex-col bg-white text-neutral-900 select-none overflow-hidden'
+          : `h-full relative flex flex-col bg-white border-r border-neutral-100 transition-all duration-200 select-none ${
+              isCollapsed ? 'w-0 opacity-0 overflow-hidden pointer-events-none' : 'w-72 sm:w-80 opacity-100'
+            }`
+      }
     >
+      {/* Sidebar Top Header & Controls */}
+      <div className="py-2 px-2.5 flex items-center gap-1.5 shrink-0 border-b border-neutral-100 bg-white">
+        {/* Collapse button (dock mode) */}
+        {variant === 'dock' && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            title="Згорнути бічну панель (Ctrl+B)"
+            aria-label="Згорнути бічну панель"
+            className="w-7 h-7 shrink-0 flex items-center justify-center rounded-full text-neutral-700 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
+          >
+            <LogoIcon className="w-4 h-4" />
+          </button>
+        )}
+
+        {/* 1. View mode toggle icons (Notes vs Links) */}
+        <div className="flex items-center bg-neutral-100 rounded-full p-0.5 border border-neutral-200/60 shrink-0">
+          <button
+            type="button"
+            onClick={() => viewMode !== 'notes' && onToggleViewMode()}
+            title="Нотатки"
+            aria-label="Нотатки"
+            className={`w-6 h-6 flex items-center justify-center rounded-full transition-all cursor-pointer ${
+              viewMode === 'notes'
+                ? 'bg-white text-neutral-950 shadow-2xs'
+                : 'text-neutral-400 hover:text-neutral-900'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
+            onClick={() => viewMode !== 'links' && onToggleViewMode()}
+            title="Посилання"
+            aria-label="Посилання"
+            className={`w-6 h-6 flex items-center justify-center rounded-full transition-all cursor-pointer ${
+              viewMode === 'links'
+                ? 'bg-white text-neutral-950 shadow-2xs'
+                : 'text-neutral-400 hover:text-neutral-900'
+            }`}
+          >
+            <Link2 className="w-3.5 h-3.5" strokeWidth={1.8} />
+          </button>
+        </div>
+
+        {/* 2. Global Search Input - placed between switches and folder creation */}
+        <div className="relative flex-1 min-w-0 flex items-center">
+          <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-2.5 pointer-events-none shrink-0" />
+          <input
+            id="sidebar-search-input"
+            type="text"
+            value={searchTerm}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Пошук..."
+            className="w-full h-7 pl-7 pr-6 bg-neutral-50 hover:bg-neutral-100/70 focus:bg-white text-xs text-neutral-900 placeholder:text-neutral-400 border border-neutral-200 focus:border-neutral-900 rounded-full outline-none transition-colors"
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => onSearchChange('')}
+              className="absolute right-1.5 text-neutral-400 hover:text-neutral-800 w-4 h-4 flex items-center justify-center rounded-full cursor-pointer"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+
+        {/* 3. Quick Action buttons (AI, Create Folder, Create Note, Close) */}
+        <div className="flex items-center gap-1 shrink-0">
+          {onTriggerAi && (
+            <button
+              type="button"
+              onClick={onTriggerAi}
+              title="ШІ-помічник нотатки"
+              aria-label="ШІ-помічник"
+              className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
+            >
+              <AnimatedAiIcon className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => handleCreateFolderDirectly(null)}
+            title="Створити папку"
+            aria-label="Створити папку"
+            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-600 hover:text-neutral-950 hover:bg-neutral-100 transition-colors cursor-pointer"
+          >
+            <FolderPlus className="w-3.5 h-3.5" strokeWidth={1.75} />
+          </button>
+          <button
+            type="button"
+            onClick={onCreateNote}
+            title="Створити нотатку (Ctrl+N)"
+            aria-label="Створити нотатку"
+            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-900 bg-neutral-100 hover:bg-neutral-200 border border-neutral-300/80 transition-colors cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" strokeWidth={2} />
+          </button>
+
+          {variant === 'dropdown' && (
+            <>
+              <div className="w-[1px] h-3.5 bg-neutral-200 mx-0.5" />
+              {onCloseDropdown && (
+                <button
+                  type="button"
+                  onClick={onCloseDropdown}
+                  title="Закрити"
+                  aria-label="Закрити"
+                  className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-400 hover:text-neutral-800 hover:bg-neutral-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" strokeWidth={2} />
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
       {/* Floating minimal scrollbar in anchor dot style */}
       <FloatingScrollbar
         containerRef={sidebarScrollRef}
         rightOffsetClass="right-2"
         dotSizeClass="w-1.5 h-1.5"
-        topPadding={76}
+        topPadding={90}
         bottomPadding={24}
         showTooltip={false}
       />
 
-      {/* Main List Area (Notes or Links) - Scrolls continuously underneath the unified translucent header */}
+      {/* Main List Area (Notes or Links) */}
       <div
         ref={sidebarScrollRef}
         id="sidebar-main-content-zone"
@@ -746,7 +925,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
         }}
         onDragLeave={() => setIsDragOverRoot(false)}
         onDrop={handleRootDrop}
-        className={`flex-1 overflow-y-auto scrollbar-none px-3 pt-[72px] sm:pt-[76px] pb-6 space-y-1 transition-colors [mask-image:linear-gradient(to_bottom,transparent_0px,transparent_4px,black_18px,black_100%)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0px,transparent_4px,black_18px,black_100%)] ${
+        className={`flex-1 overflow-y-auto scrollbar-none px-3 pt-2 pb-6 space-y-1 transition-colors ${
           isDragOverRoot ? 'bg-neutral-50/70' : ''
         }`}
       >
@@ -835,6 +1014,22 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
           </>
         )}
       </div>
+
+      {/* Bottom Left Floating Settings Button (minimal without background pad) */}
+      {onOpenSettings && (
+        <div className="absolute bottom-3.5 left-3.5 z-20">
+          <button
+            id="sidebar-settings-btn"
+            type="button"
+            onClick={onOpenSettings}
+            title="Налаштування"
+            aria-label="Налаштування"
+            className="w-7 h-7 flex items-center justify-center rounded-full text-neutral-400 hover:text-neutral-900 transition-colors cursor-pointer group"
+          >
+            <AnimatedSettingsIcon className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </aside>
   );
 });
