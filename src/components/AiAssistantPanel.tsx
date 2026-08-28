@@ -1,121 +1,190 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Send,
-  Square,
-  RotateCcw,
   AlertCircle,
-  KeyRound,
-  Eye,
-  EyeOff,
-  ExternalLink,
-  Check,
-  FilePlus,
   ArrowDownToLine,
+  Check,
+  ChevronLeft,
+  FilePlus,
+  KeyRound,
+  ListChecks,
   RefreshCw,
+  RotateCcw,
+  Send,
+  Sparkles,
+  Square,
+  WandSparkles,
 } from 'lucide-react';
 import Markdown from 'react-markdown';
-import { Note, ChatMessage } from '../types';
+import { ChatMessage, Note } from '../types';
 import { extractPlainSnippet } from '../utils/storage';
 import { AnimatedAiIcon, AnimatedCopyIcon } from './AnimatedIcons';
-import { GEMINI_KEY_STORAGE_KEY } from './ApiKeyModal';
+import { GEMINI_KEY_CHANGED_EVENT, GEMINI_KEY_STORAGE_KEY } from './ApiKeyModal';
 
 interface AiAssistantPanelProps {
   activeNote: Note | null;
+  messages: ChatMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   onClose: () => void;
   onInsertIntoActiveNote?: (text: string) => void;
   onCreateNoteWithContent?: (title: string, content: string) => void;
   onOpenApiKeyModal?: () => void;
 }
 
+const NOTE_ACTIONS = [
+  {
+    label: 'Стисло підсумуй',
+    prompt: 'Стисло підсумуй поточну нотатку. Збережи ключові факти й висновки.',
+    icon: Sparkles,
+  },
+  {
+    label: 'Наведи лад у тексті',
+    prompt: 'Перебудуй поточну нотатку в чітку структуру із заголовками та списками. Не втрачай зміст.',
+    icon: WandSparkles,
+  },
+  {
+    label: 'Виділи наступні кроки',
+    prompt: 'Знайди в поточній нотатці конкретні наступні кроки та подай їх коротким списком.',
+    icon: ListChecks,
+  },
+];
+
+const GENERAL_ACTIONS = [
+  {
+    label: 'Допоможи скласти план',
+    prompt: 'Допоможи скласти короткий практичний план. Спочатку запитай, для якої мети він потрібен.',
+    icon: ListChecks,
+  },
+  {
+    label: 'Розвинути ідею',
+    prompt: 'Допоможи розвинути ідею. Спочатку постав одне уточнювальне запитання.',
+    icon: Sparkles,
+  },
+];
+
+function copyText(text: string): void {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).catch(() => {});
+    return;
+  }
+
+  const textArea = document.createElement('textarea');
+  textArea.value = text;
+  textArea.style.position = 'fixed';
+  textArea.style.opacity = '0';
+  document.body.appendChild(textArea);
+  textArea.select();
+  document.execCommand('copy');
+  textArea.remove();
+}
+
+function responseTitle(text: string): string {
+  const firstMeaningfulLine = text
+    .split('\n')
+    .map((line) => line.replace(/^[#>*\s-]+/, '').replace(/[*_`]/g, '').trim())
+    .find(Boolean);
+
+  return (firstMeaningfulLine || 'Відповідь Gemini').slice(0, 60);
+}
+
 export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
   activeNote,
+  messages,
+  setMessages,
   onClose,
   onInsertIntoActiveNote,
   onCreateNoteWithContent,
   onOpenApiKeyModal,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [insertedMessageId, setInsertedMessageId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [lastQuery, setLastQuery] = useState<string>('');
-
-  // Local API Key state
-  const [apiKey, setApiKey] = useState<string>(() => {
-    return localStorage.getItem(GEMINI_KEY_STORAGE_KEY) || '';
-  });
-  const [isInlineKeyBoxOpen, setIsInlineKeyBoxOpen] = useState(false);
-  const [inlineKeyInput, setInlineKeyInput] = useState('');
-  const [showKeyText, setShowKeyText] = useState(false);
+  const [lastQuery, setLastQuery] = useState('');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(GEMINI_KEY_STORAGE_KEY) || '');
+  const [serverHasApiKey, setServerHasApiKey] = useState<boolean | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const activeResponseIdRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const syncStoredKey = useCallback(() => {
+    setApiKey(localStorage.getItem(GEMINI_KEY_STORAGE_KEY) || '');
+  }, []);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isLoading, errorMessage]);
+    const controller = new AbortController();
+
+    fetch('/api/health', {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setServerHasApiKey(Boolean(data?.hasGeminiKey)))
+      .catch((error) => {
+        if (error?.name !== 'AbortError') setServerHasApiKey(false);
+      });
+
+    window.addEventListener('storage', syncStoredKey);
+    window.addEventListener(GEMINI_KEY_CHANGED_EVENT, syncStoredKey);
+
+    return () => {
+      controller.abort();
+      window.removeEventListener('storage', syncStoredKey);
+      window.removeEventListener(GEMINI_KEY_CHANGED_EVENT, syncStoredKey);
+    };
+  }, [syncStoredKey]);
 
   useEffect(() => {
     inputRef.current?.focus();
+    return () => abortControllerRef.current?.abort();
   }, []);
 
-  // Sync API key changes
   useEffect(() => {
-    const handleStorage = () => {
-      const stored = localStorage.getItem(GEMINI_KEY_STORAGE_KEY) || '';
-      setApiKey(stored);
-      if (stored) {
-        setIsInlineKeyBoxOpen(false);
-        setErrorMessage(null);
-      }
-    };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, []);
+    messagesEndRef.current?.scrollIntoView({ behavior: isLoading ? 'auto' : 'smooth' });
+  }, [messages, isLoading, errorMessage]);
+
+  useEffect(() => {
+    const textarea = inputRef.current;
+    if (!textarea) return;
+    textarea.style.height = '40px';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 112)}px`;
+  }, [input]);
 
   const handleCopy = (text: string, id: string) => {
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).catch(() => {});
-    }
+    copyText(text);
     setCopiedMessageId(id);
-    setTimeout(() => {
-      setCopiedMessageId((prev) => (prev === id ? null : prev));
+    window.setTimeout(() => {
+      setCopiedMessageId((previous) => (previous === id ? null : previous));
     }, 1600);
   };
 
   const handleInsert = (text: string, id: string) => {
-    if (onInsertIntoActiveNote) {
-      onInsertIntoActiveNote(text);
-      setInsertedMessageId(id);
-      setTimeout(() => {
-        setInsertedMessageId((prev) => (prev === id ? null : prev));
-      }, 1600);
-    }
+    if (!onInsertIntoActiveNote) return;
+    onInsertIntoActiveNote(text);
+    setInsertedMessageId(id);
+    window.setTimeout(() => {
+      setInsertedMessageId((previous) => (previous === id ? null : previous));
+    }, 1600);
   };
 
   const handleCreateNewNote = (text: string) => {
-    if (onCreateNoteWithContent) {
-      const lines = text.trim().split('\n');
-      let title = 'ШІ Відповідь';
-      if (lines.length > 0 && lines[0].replace(/^[#*\s-]+/, '').trim().length > 0) {
-        title = lines[0].replace(/^[#*\s-]+/, '').trim().slice(0, 40);
-      }
-      onCreateNoteWithContent(title, text);
-    }
+    onCreateNoteWithContent?.(responseTitle(text), text);
   };
 
   const handleStop = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+
+    const activeResponseId = activeResponseIdRef.current;
+    if (activeResponseId) {
+      setMessages((previous) =>
+        previous.filter((message) => message.id !== activeResponseId || message.content.trim())
+      );
     }
+
+    activeResponseIdRef.current = null;
     setIsLoading(false);
   };
 
@@ -126,27 +195,31 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
     setLastQuery('');
   };
 
-  const handleSaveInlineKey = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const trimmed = inlineKeyInput.trim();
-    setApiKey(trimmed);
-    if (trimmed) {
-      localStorage.setItem(GEMINI_KEY_STORAGE_KEY, trimmed);
-    } else {
-      localStorage.removeItem(GEMINI_KEY_STORAGE_KEY);
+  const checkServerKey = async (): Promise<boolean> => {
+    if (serverHasApiKey !== null) return serverHasApiKey;
+
+    try {
+      const response = await fetch('/api/health', { headers: { Accept: 'application/json' } });
+      const data = response.ok ? await response.json() : null;
+      const hasKey = Boolean(data?.hasGeminiKey);
+      setServerHasApiKey(hasKey);
+      return hasKey;
+    } catch {
+      setServerHasApiKey(false);
+      return false;
     }
-    setIsInlineKeyBoxOpen(false);
-    setErrorMessage(null);
   };
 
   const sendMessage = async (textToSend?: string) => {
-    const query = (textToSend !== undefined ? textToSend : input).trim();
+    const query = (textToSend ?? input).trim().slice(0, 6000);
     if (!query || isLoading) return;
 
-    const currentKey = localStorage.getItem(GEMINI_KEY_STORAGE_KEY) || apiKey || '';
-    if (!currentKey) {
-      setIsInlineKeyBoxOpen(true);
-      setErrorMessage('Будь ласка, збережіть ваш API-ключ Gemini для початку роботи.');
+    const currentKey = localStorage.getItem(GEMINI_KEY_STORAGE_KEY)?.trim() || apiKey.trim();
+    const canUseServerKey = currentKey ? true : await checkServerKey();
+
+    if (!currentKey && !canUseServerKey) {
+      setErrorMessage('Підключіть API-ключ Gemini, щоб почати розмову.');
+      onOpenApiKeyModal?.();
       return;
     }
 
@@ -154,38 +227,31 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
     setInput('');
     setLastQuery(query);
 
-    const userMsgId = 'msg-' + Date.now() + '-user';
-    const aiMsgId = 'msg-' + (Date.now() + 1) + '-ai';
-
+    const timestamp = Date.now();
     const userMessage: ChatMessage = {
-      id: userMsgId,
+      id: `msg-${timestamp}-user`,
       role: 'user',
       content: query,
-      timestamp: Date.now(),
+      timestamp,
     };
-
-    const initialAiMessage: ChatMessage = {
-      id: aiMsgId,
+    const assistantMessage: ChatMessage = {
+      id: `msg-${timestamp}-assistant`,
       role: 'assistant',
       content: '',
-      timestamp: Date.now() + 1,
+      timestamp: timestamp + 1,
     };
 
-    // Filter valid completed message history (exclude broken/empty ones)
-    const validHistory = messages
-      .filter((m) => m.content && m.content.trim().length > 0 && !m.content.startsWith('⚠️'))
-      .map((m) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        content: m.content,
+    const history = messages
+      .filter((message) => message.content.trim() && !message.content.startsWith('⚠️'))
+      .map((message) => ({
+        role: message.role === 'assistant' ? 'model' : 'user',
+        content: message.content,
       }));
+    history.push({ role: 'user', content: query });
 
-    validHistory.push({
-      role: 'user',
-      content: query,
-    });
-
-    setMessages((prev) => [...prev, userMessage, initialAiMessage]);
+    setMessages((previous) => [...previous, userMessage, assistantMessage]);
     setIsLoading(true);
+    activeResponseIdRef.current = assistantMessage.id;
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -194,331 +260,283 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
       const activeNoteContext = activeNote
         ? {
             title: activeNote.title,
-            contentSnippet: extractPlainSnippet(activeNote.content, 4000),
+            contentSnippet: extractPlainSnippet(activeNote.content, 12000),
           }
         : undefined;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (currentKey) headers['x-gemini-api-key'] = currentKey;
 
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-gemini-api-key': currentKey,
-        },
-        body: JSON.stringify({
-          messages: validHistory,
-          activeNoteContext,
-          customApiKey: currentKey,
-        }),
+        headers,
+        body: JSON.stringify({ messages: history, activeNoteContext }),
         signal: controller.signal,
       });
 
       if (!response.ok) {
-        let errorData: any = {};
-        try {
-          errorData = await response.json();
-        } catch {
-          // ignore
-        }
-        let msg = errorData.error || `Помилка (${response.status}): ${response.statusText}`;
-        try {
-          const parsed = JSON.parse(msg);
-          if (parsed?.error?.message) {
-            msg = parsed.error.message;
-          }
-        } catch {}
-        throw new Error(msg);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData?.error || `Не вдалося виконати запит (${response.status}).`);
       }
-
-      if (!response.body) {
-        throw new Error('Отримано порожню відповідь від сервера.');
-      }
+      if (!response.body) throw new Error('Gemini повернув порожню відповідь.');
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let accumulatedText = '';
       let buffer = '';
 
+      const consumeLine = (line: string) => {
+        const trimmedLine = line.trim();
+        if (!trimmedLine.startsWith('data:')) return;
+        const payload = trimmedLine.replace(/^data:\s*/, '').trim();
+        if (!payload || payload === '[DONE]') return;
+
+        let parsed: { text?: string; error?: string };
+        try {
+          parsed = JSON.parse(payload);
+        } catch {
+          return;
+        }
+
+        if (parsed.error) throw new Error(parsed.error);
+        if (!parsed.text) return;
+
+        accumulatedText += parsed.text;
+        setMessages((previous) =>
+          previous.map((message) =>
+            message.id === assistantMessage.id
+              ? { ...message, content: accumulatedText }
+              : message
+          )
+        );
+      };
+
       while (true) {
         const { value, done } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
+        buffer += decoder.decode(value, { stream: !done });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (!trimmedLine || !trimmedLine.startsWith('data:')) continue;
-
-          const dataStr = trimmedLine.replace(/^data:\s*/, '').trim();
-          if (dataStr === '[DONE]') {
-            break;
-          }
-          try {
-            const parsed = JSON.parse(dataStr);
-            if (parsed.text) {
-              accumulatedText += parsed.text;
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === aiMsgId ? { ...msg, content: accumulatedText } : msg
-                )
-              );
-            }
-            if (parsed.error) {
-              throw new Error(parsed.error);
-            }
-          } catch (pErr: any) {
-            if (pErr.message && !pErr.message.includes('JSON')) {
-              throw pErr;
-            }
-          }
-        }
+        lines.forEach(consumeLine);
+        if (done) break;
       }
-
-      // If finished with empty content
-      if (!accumulatedText.trim()) {
-        throw new Error('Отримано порожню відповідь від моделі. Спробуйте повторити.');
-      }
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
+      if (buffer.trim()) consumeLine(buffer);
+      if (!accumulatedText.trim()) throw new Error('Gemini повернув порожню відповідь. Спробуйте ще раз.');
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        setMessages((previous) =>
+          previous.filter(
+            (message) => message.id !== assistantMessage.id || message.content.trim()
+          )
+        );
         return;
       }
-      console.error('Chat error:', err);
-      let errText = err?.message || 'Помилка генерації.';
-      try {
-        const parsed = JSON.parse(errText);
-        if (parsed?.error?.message) {
-          errText = parsed.error.message;
-        }
-      } catch {}
 
-      setErrorMessage(errText);
+      const message = error?.message || 'Не вдалося отримати відповідь Gemini.';
+      setErrorMessage(message);
+      setMessages((previous) =>
+        previous.filter(
+          (item) => item.id !== assistantMessage.id || item.content.trim()
+        )
+      );
 
+      const normalizedMessage = message.toLowerCase();
       if (
-        errText.toLowerCase().includes('ключ') ||
-        errText.toLowerCase().includes('api_key') ||
-        errText.toLowerCase().includes('api key') ||
-        errText.toLowerCase().includes('401')
+        normalizedMessage.includes('ключ') ||
+        normalizedMessage.includes('api_key') ||
+        normalizedMessage.includes('api key') ||
+        normalizedMessage.includes('401')
       ) {
-        setIsInlineKeyBoxOpen(true);
+        onOpenApiKeyModal?.();
       }
-
-      // Remove the incomplete assistant bubble on error
-      setMessages((prev) => prev.filter((msg) => msg.id !== aiMsgId));
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      activeResponseIdRef.current = null;
+      window.setTimeout(() => inputRef.current?.focus(), 0);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void sendMessage();
     }
   };
+
+  const quickActions = activeNote ? NOTE_ACTIONS : GENERAL_ACTIONS;
+  const hasCredentials = Boolean(apiKey) || serverHasApiKey === true;
 
   return (
-    <div className="flex flex-col h-full bg-white select-none overflow-hidden animate-in fade-in duration-150">
-      {/* Top Header */}
-      <div className="h-9 px-3 border-b border-neutral-100 flex items-center justify-between shrink-0 bg-white">
-        <div className="flex items-center gap-1.5 min-w-0 text-neutral-800">
-          <AnimatedAiIcon isThinking={isLoading} className="w-3.5 h-3.5 text-neutral-800" />
+    <div id="ai-assistant-panel" className="flex h-full min-h-0 flex-col overflow-hidden bg-white text-neutral-900">
+      <header className="flex min-h-14 shrink-0 items-center gap-2 px-3 py-2.5">
+        <button
+          type="button"
+          onClick={onClose}
+          title="Повернутися до бібліотеки"
+          aria-label="Повернутися до бібліотеки"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-950"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-neutral-900">
+            <AnimatedAiIcon isThinking={isLoading} className="h-3.5 w-3.5" />
+            <span>Gemini</span>
+          </div>
+          <p className="truncate text-[10px] text-neutral-400">
+            {activeNote ? activeNote.title || 'Поточна нотатка без назви' : 'Помічник для ваших нотаток'}
+          </p>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          {/* Key Button */}
+        <button
+          type="button"
+          onClick={onOpenApiKeyModal}
+          title={hasCredentials ? 'Налаштувати Gemini' : 'Підключити Gemini'}
+          aria-label={hasCredentials ? 'Налаштувати Gemini' : 'Підключити Gemini'}
+          className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-950"
+        >
+          <KeyRound className="h-3.5 w-3.5" />
+          {hasCredentials && <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-white" />}
+        </button>
+
+        {messages.length > 0 && (
           <button
             type="button"
-            onClick={() => {
-              setInlineKeyInput(apiKey);
-              setIsInlineKeyBoxOpen(!isInlineKeyBoxOpen);
-            }}
-            title={apiKey ? 'Змінити API-ключ Gemini' : 'Ввести API-ключ Gemini'}
-            className={`w-6 h-6 flex items-center justify-center rounded-full transition-colors cursor-pointer relative ${
-              apiKey
-                ? 'text-neutral-700 bg-neutral-100 hover:bg-neutral-200'
-                : 'text-amber-700 bg-amber-50 hover:bg-amber-100 ring-1 ring-amber-300'
-            }`}
+            onClick={handleClearChat}
+            title="Очистити розмову"
+            aria-label="Очистити розмову"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600"
           >
-            <KeyRound className="w-3.5 h-3.5" />
-            {apiKey && (
-              <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-500 ring-1 ring-white" />
-            )}
+            <RotateCcw className="h-3.5 w-3.5" />
           </button>
+        )}
+      </header>
 
-          {messages.length > 0 && (
-            <button
-              type="button"
-              onClick={handleClearChat}
-              title="Очистити історію"
-              className="w-6 h-6 flex items-center justify-center rounded-full text-neutral-400 hover:text-red-600 hover:bg-red-50/60 transition-colors cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2 pt-1 scrollbar-none select-text" aria-live="polite">
+        {messages.length === 0 ? (
+          <div className="flex h-full min-h-[280px] flex-col justify-center px-2 pb-10 select-none">
+            <AnimatedAiIcon isThinking={false} className="mb-4 h-5 w-5 text-neutral-900" />
+            <h2 className="text-sm font-semibold text-neutral-900">
+              {activeNote ? 'Що зробити з нотаткою?' : 'Чим допомогти?'}
+            </h2>
+            <p className="mt-1 max-w-[250px] text-xs leading-relaxed text-neutral-400">
+              {activeNote
+                ? 'Gemini бачить текст відкритої нотатки й може працювати з ним у контексті.'
+                : 'Поставте запитання або почніть із готової дії.'}
+            </p>
 
-      {/* Inline Key Setup */}
-      {(isInlineKeyBoxOpen || !apiKey) && (
-        <div className="p-2.5 bg-neutral-50 border-b border-neutral-200/80 animate-in fade-in slide-in-from-top-1 duration-150 shrink-0 space-y-2">
-          <form onSubmit={handleSaveInlineKey} className="space-y-2">
-            <div className="relative">
-              <input
-                type={showKeyText ? 'text' : 'password'}
-                value={inlineKeyInput}
-                onChange={(e) => setInlineKeyInput(e.target.value)}
-                placeholder="Введіть API ключ (AIzaSy...)"
-                autoFocus={!apiKey}
-                className="w-full h-7 pl-3 pr-8 bg-white text-xs text-neutral-900 placeholder:text-neutral-400 border border-neutral-200 focus:border-neutral-900 rounded-full outline-none transition-colors"
-              />
+            <div className="mt-5 space-y-0.5">
+              {quickActions.map(({ label, prompt, icon: Icon }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => void sendMessage(prompt)}
+                  className="group flex w-full items-center gap-2.5 rounded-lg px-1 py-2 text-left text-xs text-neutral-500 transition-colors hover:text-neutral-950"
+                >
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-neutral-400 transition-colors group-hover:text-neutral-800" />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+
+            {!hasCredentials && serverHasApiKey === false && (
               <button
                 type="button"
-                onClick={() => setShowKeyText(!showKeyText)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 cursor-pointer"
+                onClick={onOpenApiKeyModal}
+                className="mt-4 w-fit rounded-full border border-neutral-300/80 bg-neutral-100 px-3 py-1.5 text-[11px] font-semibold text-neutral-900 transition-colors hover:bg-neutral-200"
               >
-                {showKeyText ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                Підключити Gemini
               </button>
-            </div>
-
-            <div className="flex items-center justify-between pt-0.5">
-              <a
-                href="https://aistudio.google.com/app/apikey"
-                target="_blank"
-                rel="noreferrer"
-                className="text-[11px] text-neutral-500 hover:text-neutral-900 inline-flex items-center gap-1 underline underline-offset-2"
-              >
-                <span>Отримати ключ</span>
-                <ExternalLink className="w-2.5 h-2.5" />
-              </a>
-
-              <div className="flex items-center gap-1.5">
-                {apiKey && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setInlineKeyInput('');
-                      setApiKey('');
-                      localStorage.removeItem(GEMINI_KEY_STORAGE_KEY);
-                    }}
-                    className="px-2 py-0.5 text-[11px] text-neutral-500 hover:text-red-600 rounded-full transition-colors cursor-pointer"
-                  >
-                    Видалити
-                  </button>
-                )}
-                <button
-                  type="submit"
-                  disabled={!inlineKeyInput.trim()}
-                  className="px-3 py-1 bg-neutral-900 hover:bg-neutral-800 disabled:opacity-40 text-white rounded-full text-[11px] font-semibold transition-colors cursor-pointer shadow-2xs"
-                >
-                  Зберегти
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Messages Scroll Area */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3 scrollbar-none select-text text-neutral-900">
-        {messages.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-center p-4 select-none opacity-25">
-            <AnimatedAiIcon isThinking={false} className="w-5 h-5 text-neutral-400" />
+            )}
           </div>
         ) : (
-          messages.map((msg) => {
-            const isUser = msg.role === 'user';
-            return (
-              <div
-                key={msg.id}
-                className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} group`}
-              >
-                <div
-                  className={`max-w-[92%] px-3 py-2 text-xs leading-relaxed transition-all ${
-                    isUser
-                      ? 'bg-neutral-900 text-white rounded-2xl rounded-br-xs shadow-2xs'
-                      : 'bg-neutral-50 border border-neutral-200/80 text-neutral-900 rounded-2xl rounded-tl-xs shadow-2xs'
-                  }`}
-                >
-                  {isUser ? (
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
-                  ) : msg.content ? (
-                    <div className="prose prose-xs max-w-none text-neutral-900 text-xs space-y-1.5 leading-relaxed overflow-x-auto">
-                      <Markdown>{msg.content}</Markdown>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 text-neutral-400 py-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-pulse" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-pulse delay-75" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-pulse delay-150" />
-                    </div>
+          <div className="space-y-5 py-2">
+            {messages.map((message) => {
+              const isUser = message.role === 'user';
+              return (
+                <article key={message.id} className={isUser ? 'flex justify-end' : 'flex items-start gap-2'}>
+                  {!isUser && (
+                    <AnimatedAiIcon
+                      isThinking={isLoading && !message.content}
+                      className="mt-1 h-3.5 w-3.5 shrink-0 text-neutral-500"
+                    />
                   )}
-                </div>
 
-                {/* Actions Toolbar */}
-                {!isUser && msg.content && (
-                  <div className="flex items-center gap-1 mt-1 px-1 opacity-70 group-hover:opacity-100 transition-opacity">
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(msg.content, msg.id)}
-                      title="Скопіювати"
-                      className="p-1 text-neutral-400 hover:text-neutral-900 rounded-full hover:bg-neutral-100 transition-colors cursor-pointer"
-                    >
-                      <AnimatedCopyIcon
-                        isCopied={copiedMessageId === msg.id}
-                        className="w-3 h-3"
-                      />
-                    </button>
+                  <div className={isUser ? 'max-w-[88%] rounded-2xl rounded-br-md bg-neutral-100 px-3 py-2' : 'min-w-0 flex-1'}>
+                    {isUser ? (
+                      <p className="whitespace-pre-wrap text-xs leading-relaxed text-neutral-800">{message.content}</p>
+                    ) : message.content ? (
+                      <>
+                        <div className="noroom-ai-markdown text-xs leading-relaxed text-neutral-800">
+                          <Markdown>{message.content}</Markdown>
+                        </div>
+                        <div className="mt-2 flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(message.content, message.id)}
+                            title="Скопіювати"
+                            aria-label="Скопіювати відповідь"
+                            className="flex h-7 w-7 items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
+                          >
+                            <AnimatedCopyIcon isCopied={copiedMessageId === message.id} className="h-3 w-3" />
+                          </button>
 
-                    {onInsertIntoActiveNote && activeNote && (
-                      <button
-                        type="button"
-                        onClick={() => handleInsert(msg.content, msg.id)}
-                        title="Вставити в нотатку"
-                        className="p-1 text-neutral-400 hover:text-neutral-900 rounded-full hover:bg-neutral-100 transition-colors cursor-pointer flex items-center gap-0.5"
-                      >
-                        {insertedMessageId === msg.id ? (
-                          <Check className="w-3 h-3 text-emerald-600" />
-                        ) : (
-                          <ArrowDownToLine className="w-3 h-3" />
-                        )}
-                      </button>
-                    )}
+                          {onInsertIntoActiveNote && activeNote && (
+                            <button
+                              type="button"
+                              onClick={() => handleInsert(message.content, message.id)}
+                              title="Вставити в нотатку"
+                              aria-label="Вставити відповідь у нотатку"
+                              className="flex h-7 w-7 items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
+                            >
+                              {insertedMessageId === message.id ? (
+                                <Check className="h-3 w-3 text-emerald-600" />
+                              ) : (
+                                <ArrowDownToLine className="h-3 w-3" />
+                              )}
+                            </button>
+                          )}
 
-                    {onCreateNoteWithContent && (
-                      <button
-                        type="button"
-                        onClick={() => handleCreateNewNote(msg.content)}
-                        title="Створити нову нотатку"
-                        className="p-1 text-neutral-400 hover:text-neutral-900 rounded-full hover:bg-neutral-100 transition-colors cursor-pointer"
-                      >
-                        <FilePlus className="w-3 h-3" />
-                      </button>
+                          {onCreateNoteWithContent && (
+                            <button
+                              type="button"
+                              onClick={() => handleCreateNewNote(message.content)}
+                              title="Створити нову нотатку"
+                              aria-label="Створити нотатку з відповіді"
+                              className="flex h-7 w-7 items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
+                            >
+                              <FilePlus className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex h-6 items-center gap-1.5 text-neutral-400" aria-label="Gemini формує відповідь">
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-neutral-400" />
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-neutral-400 [animation-delay:120ms]" />
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-neutral-400 [animation-delay:240ms]" />
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
-            );
-          })
+                </article>
+              );
+            })}
+          </div>
         )}
 
         {errorMessage && (
-          <div className="p-2.5 bg-red-50/90 border border-red-200/80 rounded-2xl flex items-start justify-between gap-2 text-xs text-red-700 animate-in fade-in duration-150">
-            <div className="flex items-start gap-2 min-w-0">
-              <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5" />
-              <p className="text-[11px] leading-snug break-words">{errorMessage}</p>
-            </div>
+          <div className="flex items-start gap-2 py-3 text-[11px] leading-relaxed text-red-600" role="alert">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <p className="min-w-0 flex-1">{errorMessage}</p>
             {lastQuery && (
               <button
                 type="button"
-                onClick={() => sendMessage(lastQuery)}
+                onClick={() => void sendMessage(lastQuery)}
                 disabled={isLoading}
-                title="Повторити запит"
-                className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-red-100/50 border border-red-200 rounded-full text-[10px] font-semibold text-red-700 transition-colors cursor-pointer shadow-2xs"
+                className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-40"
               >
-                <RefreshCw className={`w-2.5 h-2.5 ${isLoading ? 'animate-spin' : ''}`} />
-                <span>Повторити</span>
+                <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
+                <span>Ще раз</span>
               </button>
             )}
           </div>
@@ -527,38 +545,40 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Bottom Input */}
-      <div className="p-2 border-t border-neutral-100 bg-white shrink-0">
-        <div className="relative flex items-center">
-          <input
+      <div className="shrink-0 p-3 pt-1">
+        <div className="relative rounded-[18px] border border-neutral-200 bg-neutral-50 transition-colors focus-within:border-neutral-400 focus-within:bg-white">
+          <textarea
             ref={inputRef}
-            type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
             disabled={isLoading}
-            placeholder="Повідомлення..."
-            className="w-full h-7 pl-3 pr-8 bg-neutral-50 hover:bg-neutral-100/70 focus:bg-white text-xs text-neutral-900 placeholder:text-neutral-400 border border-neutral-200 focus:border-neutral-900 rounded-full outline-none transition-colors disabled:opacity-50"
+            maxLength={6000}
+            rows={1}
+            placeholder={activeNote ? 'Запитайте про цю нотатку…' : 'Повідомлення для Gemini…'}
+            className="block min-h-10 max-h-28 w-full resize-none overflow-y-auto bg-transparent px-3.5 pb-10 pt-3 text-xs leading-relaxed text-neutral-900 outline-none placeholder:text-neutral-400 disabled:opacity-50"
           />
 
           {isLoading ? (
             <button
               type="button"
               onClick={handleStop}
-              title="Зупинити генерацію"
-              className="absolute right-1 w-5 h-5 flex items-center justify-center rounded-full bg-neutral-900 text-white hover:bg-neutral-800 transition-colors cursor-pointer shadow-2xs"
+              title="Зупинити відповідь"
+              aria-label="Зупинити відповідь"
+              className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full border border-neutral-300/80 bg-neutral-100 text-neutral-900 transition-colors hover:bg-neutral-200"
             >
-              <Square className="w-2 h-2 fill-current" />
+              <Square className="h-2.5 w-2.5 fill-current" />
             </button>
           ) : (
             <button
               type="button"
-              onClick={() => sendMessage()}
+              onClick={() => void sendMessage()}
               disabled={!input.trim()}
               title="Надіслати"
-              className="absolute right-1 w-5 h-5 flex items-center justify-center rounded-full bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-30 disabled:hover:bg-neutral-900 transition-all cursor-pointer shadow-2xs"
+              aria-label="Надіслати повідомлення"
+              className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full border border-neutral-300/80 bg-neutral-100 text-neutral-900 transition-colors hover:bg-neutral-200 disabled:cursor-default disabled:opacity-35"
             >
-              <Send className="w-2.5 h-2.5 stroke-[2.2]" />
+              <Send className="h-3 w-3" />
             </button>
           )}
         </div>

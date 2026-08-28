@@ -5,13 +5,10 @@ import {
   EyeOff,
   ExternalLink,
   Check,
-  X,
-  Sparkles,
-  Trash2,
 } from 'lucide-react';
-import { AnimatedAiIcon } from './AnimatedIcons';
 
 export const GEMINI_KEY_STORAGE_KEY = 'user_custom_gemini_api_key';
+export const GEMINI_KEY_CHANGED_EVENT = 'noroom:gemini-key-changed';
 
 interface ApiKeyModalProps {
   isOpen: boolean;
@@ -46,6 +43,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
     } else {
       localStorage.removeItem(GEMINI_KEY_STORAGE_KEY);
     }
+    window.dispatchEvent(new Event(GEMINI_KEY_CHANGED_EVENT));
     setIsSaved(true);
     onKeySaved?.(trimmed);
     setTimeout(() => {
@@ -55,6 +53,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
 
   const handleRemove = () => {
     localStorage.removeItem(GEMINI_KEY_STORAGE_KEY);
+    window.dispatchEvent(new Event(GEMINI_KEY_CHANGED_EVENT));
     setApiKeyInput('');
     setIsSaved(false);
     onKeySaved?.('');

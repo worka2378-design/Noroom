@@ -12,7 +12,7 @@ import {
   Table as TableIcon,
   X,
 } from 'lucide-react';
-import { Note, Folder } from '../types';
+import { ChatMessage, Note, Folder } from '../types';
 import { formatNoteDate, extractPlainSnippet } from '../utils/storage';
 import { ExtractedLink } from '../utils/links';
 import { findMatchingSectionsInNote, NoteSection } from '../utils/sections';
@@ -65,6 +65,8 @@ export interface SidebarProps {
   onMarkFolderInteracted?: (folderId: string) => void;
   onOpenSettings?: () => void;
   onTriggerAi?: () => void;
+  aiMessages: ChatMessage[];
+  setAiMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   onInsertIntoActiveNote?: (text: string) => void;
   onCreateNoteWithContent?: (title: string, content: string) => void;
   onOpenApiKeyModal?: () => void;
@@ -104,6 +106,8 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
   onMarkFolderInteracted,
   onOpenSettings,
   onTriggerAi,
+  aiMessages,
+  setAiMessages,
   onInsertIntoActiveNote,
   onCreateNoteWithContent,
   onOpenApiKeyModal,
@@ -767,6 +771,8 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(({
       >
         <AiAssistantPanel
           activeNote={activeNote || notes.find((n) => n.id === activeId) || null}
+          messages={aiMessages}
+          setMessages={setAiMessages}
           onClose={() => onToggleViewMode('notes')}
           onInsertIntoActiveNote={onInsertIntoActiveNote}
           onCreateNoteWithContent={onCreateNoteWithContent}

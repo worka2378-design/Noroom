@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Plus } from 'lucide-react';
-import { Note, Folder } from './types';
+import { ChatMessage, Note, Folder } from './types';
 import {
   loadSavedNotes,
   saveNotesToStorage,
@@ -61,6 +61,20 @@ import { VaultLockScreen } from './components/VaultLockScreen';
 import { VaultSetupModal } from './components/VaultSetupModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
 
+function plainTextToSafeHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
+  return escaped
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${paragraph.replace(/\n/g, '<br/>')}</p>`)
+    .join('');
+}
+
 export default function App() {
   const [vaultMeta, setVaultMeta] = useState<VaultMeta | null>(() => getSavedVaultMeta());
   const [isVaultLocked, setIsVaultLocked] = useState<boolean>(() => isVaultProtected());
@@ -79,6 +93,7 @@ export default function App() {
   });
   const [targetAnchorId, setTargetAnchorId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'notes' | 'links' | 'ai'>('notes');
+  const [aiConversations, setAiConversations] = useState<Record<string, ChatMessage[]>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     return safeGetItem(SIDEBAR_STATE_KEY) === 'collapsed';
@@ -228,6 +243,7 @@ export default function App() {
     setFolders([]);
     setLinkFolderMap({});
     setActiveId(null);
+    setAiConversations({});
   }, []);
 
   // Unlock Vault handler
@@ -269,6 +285,7 @@ export default function App() {
     setFolders(INITIAL_FOLDERS);
     setLinkFolderMap({});
     setActiveId(INITIAL_NOTES[0].id);
+    setAiConversations({});
   }, []);
 
   // Setup Vault for first time
@@ -541,7 +558,7 @@ export default function App() {
             n.id === activeId
               ? {
                   ...n,
-                  content: n.content + '<p>' + text.replace(/\n/g, '<br/>') + '</p>',
+                  content: n.content + plainTextToSafeHtml(text),
                   updated: Date.now(),
                 }
               : n
@@ -557,7 +574,7 @@ export default function App() {
   const handleCreateNoteWithContent = useCallback(
     (title: string, content: string) => {
       const newId = uid();
-      const htmlContent = '<p>' + content.replace(/\n/g, '<br/>') + '</p>';
+      const htmlContent = plainTextToSafeHtml(content);
       const newNote: Note = {
         id: newId,
         title: title || 'ШІ Нотатка',
@@ -959,6 +976,13 @@ export default function App() {
       e.stopPropagation();
       if (!window.confirm('Видалити цю нотатку?')) return;
 
+      setAiConversations((previous) => {
+        if (!previous[id]) return previous;
+        const next = { ...previous };
+        delete next[id];
+        return next;
+      });
+
       // 1. Identify all folders created for or associated with this note
       const noteFolderIdsToDelete = new Set<string>();
       folders.forEach((f) => {
@@ -1048,6 +1072,21 @@ export default function App() {
   }, [handleCreateNote, handleLockVault, isVaultLocked, vaultMeta]);
 
   const activeNote = notes.find((n) => n.id === activeId) || null;
+  const aiConversationKey = activeNote?.id || '__general__';
+  const aiMessages = aiConversations[aiConversationKey] || [];
+  const setAiMessages = useCallback<React.Dispatch<React.SetStateAction<ChatMessage[]>>>(
+    (nextMessages) => {
+      setAiConversations((previous) => {
+        const currentMessages = previous[aiConversationKey] || [];
+        const resolvedMessages =
+          typeof nextMessages === 'function'
+            ? nextMessages(currentMessages)
+            : nextMessages;
+        return { ...previous, [aiConversationKey]: resolvedMessages };
+      });
+    },
+    [aiConversationKey]
+  );
   const [copiedPreviewText, setCopiedPreviewText] = useState(false);
 
   const getNoteFolderPath = useCallback(
@@ -1129,6 +1168,8 @@ export default function App() {
                 onMarkFolderInteracted={handleMarkFolderInteracted}
                 onOpenSettings={() => setIsVaultSetupOpen(true)}
                 onTriggerAi={handleTriggerAi}
+                aiMessages={aiMessages}
+                setAiMessages={setAiMessages}
                 onInsertIntoActiveNote={handleInsertIntoActiveNote}
                 onCreateNoteWithContent={handleCreateNoteWithContent}
                 onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
