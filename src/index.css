@@ -265,3 +265,264 @@ a.rich-link:hover {
   animation: anchorTargetPulse 1.8s ease-out forwards;
 }
 
+/* App shell and category-based editor ribbon */
+.noroom-document-bar {
+  min-height: 52px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fff;
+}
+
+.noroom-editor-ribbon {
+  position: relative;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: #fff;
+}
+
+.noroom-toolbar-categories {
+  min-height: 50px;
+  padding: 0 6px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto;
+}
+
+.noroom-toolbar-categories button {
+  min-height: 34px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #a3a3a3;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.noroom-toolbar-categories button:hover {
+  color: #525252;
+}
+
+.noroom-toolbar-categories button[aria-pressed='true'] {
+  color: #171717;
+  font-weight: 650;
+}
+
+.noroom-toolbar-tools {
+  min-width: 0;
+  min-height: 50px;
+  padding: 0 12px 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.noroom-toolbar-group {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.noroom-tool-control {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 8px;
+  color: #737373;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: transparent;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.noroom-tool-control:hover {
+  color: #171717;
+  background: #f5f5f4;
+}
+
+.noroom-tool-control.is-active {
+  color: #171717;
+  background: #ededeb;
+}
+
+.noroom-tool-control.is-danger:hover {
+  color: #dc2626;
+  background: #fef2f2;
+}
+
+.noroom-tool-control.is-wide {
+  width: auto;
+  min-width: 88px;
+  padding: 0 8px;
+}
+
+.noroom-tool-control.is-wide.is-compact {
+  min-width: 68px;
+}
+
+.noroom-toolbar-popover {
+  max-width: min(280px, calc(100vw - 24px));
+}
+
+.noroom-ai-markdown > * + * {
+  margin-top: 0.65rem;
+}
+
+.noroom-ai-markdown h1,
+.noroom-ai-markdown h2,
+.noroom-ai-markdown h3 {
+  color: #171717;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.noroom-ai-markdown h1 {
+  font-size: 0.95rem;
+}
+
+.noroom-ai-markdown h2,
+.noroom-ai-markdown h3 {
+  font-size: 0.825rem;
+}
+
+.noroom-ai-markdown ul,
+.noroom-ai-markdown ol {
+  padding-left: 1.15rem;
+}
+
+.noroom-ai-markdown ul {
+  list-style: disc;
+}
+
+.noroom-ai-markdown ol {
+  list-style: decimal;
+}
+
+.noroom-ai-markdown li + li {
+  margin-top: 0.25rem;
+}
+
+.noroom-ai-markdown code {
+  border-radius: 0.35rem;
+  background: #f5f5f4;
+  padding: 0.08rem 0.3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.noroom-ai-markdown pre {
+  overflow-x: auto;
+  border-radius: 0.75rem;
+  background: #f5f5f4;
+  padding: 0.7rem;
+}
+
+.noroom-ai-markdown pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.noroom-ai-markdown a {
+  color: #171717;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+@media (max-width: 639px) {
+  .noroom-document-bar {
+    min-height: 52px;
+    padding: 0 8px;
+  }
+
+  .noroom-editor-ribbon {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    z-index: 45;
+    min-height: 0;
+    display: block;
+    overflow: visible;
+    border: 1px solid rgba(212, 212, 212, 0.95);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+    backdrop-filter: blur(18px);
+  }
+
+  .noroom-toolbar-categories {
+    min-height: 44px;
+    padding: 3px 5px 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 3px;
+  }
+
+  .noroom-toolbar-categories button {
+    min-width: 0;
+    min-height: 36px;
+    padding: 0 3px;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.625rem;
+  }
+
+  .noroom-toolbar-tools {
+    min-height: 52px;
+    padding: 3px 7px 7px;
+    gap: 5px;
+  }
+
+  .noroom-toolbar-group {
+    min-height: 40px;
+    justify-content: center;
+  }
+
+  .noroom-tool-control {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+  }
+
+  .noroom-tool-control.is-wide {
+    min-width: 74px;
+    max-width: 132px;
+  }
+
+  .noroom-tool-control.is-wide > span {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .noroom-editor-ribbon .noroom-toolbar-popover,
+  .noroom-editor-ribbon .absolute.top-full {
+    top: auto !important;
+    bottom: calc(100% + 8px) !important;
+    margin-top: 0 !important;
+  }
+
+  #deck-editor-document-frame {
+    padding-bottom: 150px;
+  }
+
+  #floating-quick-new-note-btn {
+    bottom: 142px;
+  }
+}

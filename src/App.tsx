@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Plus } from 'lucide-react';
-import { Note, Folder } from './types';
+import { ChatMessage, Note, Folder } from './types';
 import {
   loadSavedNotes,
   saveNotesToStorage,
@@ -61,6 +61,20 @@ import { VaultLockScreen } from './components/VaultLockScreen';
 import { VaultSetupModal } from './components/VaultSetupModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
 
+function plainTextToSafeHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
+  return escaped
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${paragraph.replace(/\n/g, '<br/>')}</p>`)
+    .join('');
+}
+
 export default function App() {
   const [vaultMeta, setVaultMeta] = useState<VaultMeta | null>(() => getSavedVaultMeta());
   const [isVaultLocked, setIsVaultLocked] = useState<boolean>(() => isVaultProtected());
@@ -79,6 +93,7 @@ export default function App() {
   });
   const [targetAnchorId, setTargetAnchorId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'notes' | 'links' | 'ai'>('notes');
+  const [aiConversations, setAiConversations] = useState<Record<string, ChatMessage[]>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     return safeGetItem(SIDEBAR_STATE_KEY) === 'collapsed';
@@ -228,6 +243,7 @@ export default function App() {
     setFolders([]);
     setLinkFolderMap({});
     setActiveId(null);
+    setAiConversations({});
   }, []);
 
   // Unlock Vault handler
@@ -269,6 +285,7 @@ export default function App() {
     setFolders(INITIAL_FOLDERS);
     setLinkFolderMap({});
     setActiveId(INITIAL_NOTES[0].id);
+    setAiConversations({});
   }, []);
 
   // Setup Vault for first time
@@ -541,7 +558,7 @@ export default function App() {
             n.id === activeId
               ? {
                   ...n,
-                  content: n.content + '<p>' + text.replace(/\n/g, '<br/>') + '</p>',
+                  content: n.content + plainTextToSafeHtml(text),
                   updated: Date.now(),
                 }
               : n
@@ -557,7 +574,7 @@ export default function App() {
   const handleCreateNoteWithContent = useCallback(
     (title: string, content: string) => {
       const newId = uid();
-      const htmlContent = '<p>' + content.replace(/\n/g, '<br/>') + '</p>';
+      const htmlContent = plainTextToSafeHtml(content);
       const newNote: Note = {
         id: newId,
         title: title || 'ШІ Нотатка',
@@ -799,6 +816,11 @@ export default function App() {
     setActiveId(newNote.id);
     setViewMode('notes');
 
+    if (window.matchMedia('(max-width: 639px)').matches) {
+      setIsSidebarCollapsed(true);
+      safeSetItem(SIDEBAR_STATE_KEY, 'collapsed');
+    }
+
     // If sidebar is collapsed on small screen, keep focus on editor
     setTimeout(() => {
       const input = document.getElementById('editor-title-input') as HTMLInputElement | null;
@@ -835,12 +857,20 @@ export default function App() {
   const handleSelectNote = useCallback((id: string, anchorId?: string | null) => {
     setActiveId(id);
     setTargetAnchorId(anchorId || null);
+    if (window.matchMedia('(max-width: 639px)').matches) {
+      setIsSidebarCollapsed(true);
+      safeSetItem(SIDEBAR_STATE_KEY, 'collapsed');
+    }
   }, []);
 
   const handleNavigateToNote = useCallback((noteId: string, anchorId?: string | null) => {
     setActiveId(noteId);
     setTargetAnchorId(anchorId || null);
     setViewMode('notes');
+    if (window.matchMedia('(max-width: 639px)').matches) {
+      setIsSidebarCollapsed(true);
+      safeSetItem(SIDEBAR_STATE_KEY, 'collapsed');
+    }
   }, []);
 
   const handleDeleteLink = useCallback(
@@ -946,6 +976,13 @@ export default function App() {
       e.stopPropagation();
       if (!window.confirm('Видалити цю нотатку?')) return;
 
+      setAiConversations((previous) => {
+        if (!previous[id]) return previous;
+        const next = { ...previous };
+        delete next[id];
+        return next;
+      });
+
       // 1. Identify all folders created for or associated with this note
       const noteFolderIdsToDelete = new Set<string>();
       folders.forEach((f) => {
@@ -1035,6 +1072,21 @@ export default function App() {
   }, [handleCreateNote, handleLockVault, isVaultLocked, vaultMeta]);
 
   const activeNote = notes.find((n) => n.id === activeId) || null;
+  const aiConversationKey = activeNote?.id || '__general__';
+  const aiMessages = aiConversations[aiConversationKey] || [];
+  const setAiMessages = useCallback<React.Dispatch<React.SetStateAction<ChatMessage[]>>>(
+    (nextMessages) => {
+      setAiConversations((previous) => {
+        const currentMessages = previous[aiConversationKey] || [];
+        const resolvedMessages =
+          typeof nextMessages === 'function'
+            ? nextMessages(currentMessages)
+            : nextMessages;
+        return { ...previous, [aiConversationKey]: resolvedMessages };
+      });
+    },
+    [aiConversationKey]
+  );
   const [copiedPreviewText, setCopiedPreviewText] = useState(false);
 
   const getNoteFolderPath = useCallback(
@@ -1063,19 +1115,26 @@ export default function App() {
   };
 
   return (
-    <div className="relative w-full h-screen flex flex-col bg-neutral-100/70 text-neutral-900 overflow-hidden font-sans">
+    <div className="relative w-full h-screen flex flex-col bg-[#f5f5f3] text-neutral-900 overflow-hidden font-sans">
       {/* ================= PRIMARY WORKSPACE CONTAINER (MAIN VIEW AND NOTE EDITING SURFACE) ================= */}
-      <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center p-2 sm:p-3 md:p-3.5 overflow-hidden">
+      <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center p-0 sm:p-3 md:p-3.5 overflow-hidden">
         <div className="relative w-full max-w-[1600px] h-full max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-1.5rem)] flex flex-col min-h-0">
           {/* Main Card Container */}
           <div
-            className={`relative z-10 w-full flex-1 min-h-0 bg-white rounded-3xl sm:rounded-[28px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.06)] border border-neutral-200/90 overflow-hidden flex flex-row ${
+            className={`relative z-10 w-full flex-1 min-h-0 bg-white rounded-none sm:rounded-[22px] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.06)] border-0 sm:border border-neutral-200/90 overflow-hidden flex flex-row ${
               isVaultLocked && vaultMeta ? 'pointer-events-none' : ''
             }`}
           >
           {/* Left Column: Navigation Sidebar */}
           {!isSidebarCollapsed && (
-            <div className="w-60 sm:w-72 md:w-80 max-w-[40vw] sm:max-w-none shrink-0 h-full min-h-0 flex flex-col border-r border-neutral-200/80 bg-white overflow-hidden">
+            <>
+              <button
+                type="button"
+                aria-label="Закрити бібліотеку"
+                onClick={toggleSidebar}
+                className="absolute inset-0 z-40 bg-black/20 backdrop-blur-[1px] sm:hidden"
+              />
+              <div className="absolute inset-y-0 left-0 z-50 w-[86%] max-w-[340px] sm:static sm:z-auto sm:w-72 md:w-80 shrink-0 h-full min-h-0 flex flex-col border-r border-neutral-200/80 bg-white overflow-hidden shadow-2xl sm:shadow-none">
               <Sidebar
                 ref={sidebarRef}
                 variant="dock"
@@ -1109,11 +1168,14 @@ export default function App() {
                 onMarkFolderInteracted={handleMarkFolderInteracted}
                 onOpenSettings={() => setIsVaultSetupOpen(true)}
                 onTriggerAi={handleTriggerAi}
+                aiMessages={aiMessages}
+                setAiMessages={setAiMessages}
                 onInsertIntoActiveNote={handleInsertIntoActiveNote}
                 onCreateNoteWithContent={handleCreateNoteWithContent}
                 onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
               />
-            </div>
+              </div>
+            </>
           )}
 
           {/* Right Column: Note Document Preview / Main Editor Container */}
