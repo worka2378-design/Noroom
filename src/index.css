@@ -273,55 +273,57 @@ a.rich-link:hover {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1px solid rgba(229, 229, 229, 0.9);
   background: #fff;
 }
 
 .noroom-editor-ribbon {
   position: relative;
-  border-bottom: 1px solid rgba(229, 229, 229, 0.9);
-  background: #fafaf9;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: #fff;
 }
 
 .noroom-toolbar-categories {
-  min-height: 42px;
-  padding: 5px 10px 3px;
+  min-height: 50px;
+  padding: 0 6px 0 10px;
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 1px;
+  flex: 0 0 auto;
 }
 
 .noroom-toolbar-categories button {
-  min-height: 32px;
-  padding: 0 10px;
+  min-height: 34px;
+  padding: 0 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  border-radius: 9px;
-  color: #737373;
+  gap: 5px;
+  color: #a3a3a3;
   font-size: 0.75rem;
   font-weight: 500;
-  transition: color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  transition: color 0.15s ease;
 }
 
 .noroom-toolbar-categories button:hover {
-  color: #171717;
-  background: #f0f0ef;
+  color: #525252;
 }
 
 .noroom-toolbar-categories button[aria-pressed='true'] {
   color: #171717;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  font-weight: 650;
 }
 
 .noroom-toolbar-tools {
-  min-height: 58px;
-  padding: 3px 12px 9px;
+  min-width: 0;
+  min-height: 50px;
+  padding: 0 12px 0 2px;
   display: flex;
-  align-items: stretch;
-  gap: 10px;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
   overflow-x: auto;
   overflow-y: visible;
 }
@@ -329,49 +331,34 @@ a.rich-link:hover {
 .noroom-toolbar-group {
   flex: 0 0 auto;
   min-width: 0;
-  padding-right: 10px;
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 3px;
-  border-right: 1px solid #e5e5e5;
-}
-
-.noroom-toolbar-group:last-child {
-  padding-right: 0;
-  border-right: 0;
-}
-
-.noroom-toolbar-group > span {
-  padding-left: 4px;
-  color: #a3a3a3;
-  font-size: 0.625rem;
-  line-height: 1;
+  align-items: center;
 }
 
 .noroom-tool-control {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: 9px;
-  color: #525252;
+  border-radius: 8px;
+  color: #737373;
   font-size: 0.75rem;
   font-weight: 500;
-  transition: color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  background: transparent;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .noroom-tool-control:hover {
   color: #171717;
-  background: #eeeeec;
+  background: #f5f5f4;
 }
 
 .noroom-tool-control.is-active {
-  color: #1d4ed8;
-  background: #eaf1ff;
+  color: #171717;
+  background: #ededeb;
 }
 
 .noroom-tool-control.is-danger:hover {
@@ -381,14 +368,12 @@ a.rich-link:hover {
 
 .noroom-tool-control.is-wide {
   width: auto;
-  min-width: 92px;
-  padding: 0 10px;
-  border: 1px solid #e5e5e5;
-  background: #fff;
+  min-width: 88px;
+  padding: 0 8px;
 }
 
 .noroom-tool-control.is-wide.is-compact {
-  min-width: 76px;
+  min-width: 68px;
 }
 
 .noroom-toolbar-popover {
@@ -407,6 +392,8 @@ a.rich-link:hover {
     right: 10px;
     bottom: max(10px, env(safe-area-inset-bottom));
     z-index: 45;
+    min-height: 0;
+    display: block;
     overflow: visible;
     border: 1px solid rgba(212, 212, 212, 0.95);
     border-radius: 18px;
@@ -416,8 +403,8 @@ a.rich-link:hover {
   }
 
   .noroom-toolbar-categories {
-    min-height: 48px;
-    padding: 5px;
+    min-height: 44px;
+    padding: 3px 5px 0;
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 3px;
@@ -425,7 +412,7 @@ a.rich-link:hover {
 
   .noroom-toolbar-categories button {
     min-width: 0;
-    min-height: 38px;
+    min-height: 36px;
     padding: 0 3px;
     flex-direction: column;
     gap: 2px;
@@ -433,20 +420,14 @@ a.rich-link:hover {
   }
 
   .noroom-toolbar-tools {
-    min-height: 54px;
-    padding: 5px 7px 8px;
-    gap: 7px;
-    border-top: 1px solid rgba(229, 229, 229, 0.8);
+    min-height: 52px;
+    padding: 3px 7px 7px;
+    gap: 5px;
   }
 
   .noroom-toolbar-group {
     min-height: 40px;
-    padding-right: 7px;
     justify-content: center;
-  }
-
-  .noroom-toolbar-group > span {
-    display: none;
   }
 
   .noroom-tool-control {

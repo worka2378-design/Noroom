@@ -389,7 +389,6 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
                     )}
                   </div>
                 </div>
-                <span>Шрифт</span>
               </div>
 
               <div className="noroom-toolbar-group">
@@ -399,7 +398,6 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
                   <ToolButton label="Підкреслений (Ctrl+U)" active={activeFormats.underline} onClick={() => onExecCommand?.('underline')}><Underline className="h-4 w-4" /></ToolButton>
                   <ToolButton label="Закреслений" active={activeFormats.strikethrough} onClick={() => onExecCommand?.('strikeThrough')}><Strikethrough className="h-4 w-4" /></ToolButton>
                 </div>
-                <span>Накреслення</span>
               </div>
 
               <div className="noroom-toolbar-group">
@@ -417,7 +415,6 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
                     {activeMenu === 'highlightColor' && <HighlightColorPalette currentColor={highlightColor} onSelectColor={(color) => { onChangeHighlightColor?.(color); setActiveMenu(null); }} onClose={() => setActiveMenu(null)} />}
                   </div>
                 </div>
-                <span>Колір</span>
               </div>
             </>
           )}
@@ -447,7 +444,6 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
                     )}
                   </div>
                 </div>
-                <span>Абзац</span>
               </div>
 
               <div className="noroom-toolbar-group">
@@ -457,7 +453,6 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
                   <ToolButton label="Цитата" onClick={() => onFormatBlock?.('blockquote')}><Quote className="h-4 w-4" /></ToolButton>
                   <ToolButton label="Блок коду" onClick={() => onFormatBlock?.('pre')}><Code className="h-4 w-4" /></ToolButton>
                 </div>
-                <span>Списки й блоки</span>
               </div>
 
               <div className="noroom-toolbar-group">
@@ -466,7 +461,6 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
                   <ToolButton label="Надрядковий індекс" active={activeFormats.superscript} onClick={() => onExecCommand?.('superscript')}><Superscript className="h-4 w-4" /></ToolButton>
                   <ToolButton label="Очистити форматування" onClick={onClearFormatting}><RemoveFormatting className="h-4 w-4" /></ToolButton>
                 </div>
-                <span>Додатково</span>
               </div>
             </>
           )}
@@ -480,7 +474,6 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
                   <ToolButton label="Вставити таблицю 3×3" onClick={() => onInsertTable?.(3, 3)}><TableIcon className="h-4 w-4" /></ToolButton>
                   <ToolButton label="Вставити якір навігації" onClick={onInsertAnchor}><Anchor className="h-4 w-4" /></ToolButton>
                 </div>
-                <span>Об’єкти</span>
               </div>
 
               <div className="noroom-toolbar-group">
@@ -489,7 +482,6 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
                   <ToolButton label="Заголовок 2" onClick={() => onFormatBlock?.('h2')}><Heading2 className="h-4 w-4" /></ToolButton>
                   <ToolButton label="Звичайний абзац" onClick={() => onFormatBlock?.('p')}><Pilcrow className="h-4 w-4" /></ToolButton>
                 </div>
-                <span>Блоки</span>
               </div>
 
               <div className="noroom-toolbar-group">
@@ -503,7 +495,6 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
                     </div>
                   )}
                 </div>
-                <span>Файл</span>
               </div>
             </>
           )}
@@ -520,14 +511,12 @@ export const NoteHeaderToolbar: React.FC<NoteHeaderToolbarProps> = ({
                   </div>
                   <ToolButton label="Видалити нотатку" danger onClick={(event) => onDeleteNote(note.id, event)}><AnimatedTrashIcon className="h-4 w-4" /></ToolButton>
                 </div>
-                <span>Дії</span>
               </div>
 
               <div className="noroom-toolbar-group">
                 <div className="flex items-center gap-1">
                   {onOpenVaultSetup && <ToolButton label={vaultMeta ? 'Налаштування сейфу' : 'Захистити сейф'} onClick={onOpenVaultSetup}><AnimatedLockIcon isLocked={!!vaultMeta} className="h-4 w-4" /></ToolButton>}
                 </div>
-                <span>Безпека</span>
               </div>
             </>
           )}
